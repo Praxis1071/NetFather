@@ -1,0 +1,38 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# NetFather runtime data
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+logs/*
+!logs/.gitkeep
+data/*
+!data/.gitkeep
+
+# Environment / secrets
+.env
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
