@@ -29,6 +29,14 @@ class DeviceNotFoundError(NetFatherError):
     """İstenen cihaz veritabanında bulunamadığında fırlatılır."""
 
 
+class DuplicateDeviceError(NetFatherError):
+    """Aynı MAC adresi veya isimde bir cihaz zaten kayıtlıyken fırlatılır."""
+
+
+class ValidationError(NetFatherError):
+    """Kullanıcıdan gelen veri (MAC formatı, boş isim vb.) geçersiz olduğunda fırlatılır."""
+
+
 class RuleError(NetFatherError):
     """Kural oluşturma veya uygulama sırasında oluşan hatalarda fırlatılır."""
 

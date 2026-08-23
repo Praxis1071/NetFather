@@ -3,6 +3,17 @@ NetFather database bağlantı katmanı.
 
 SQLite üzerinde SQLAlchemy engine ve session yönetimini sağlar.
 Tüm modeller `models.base.Base` üzerinden bu engine'e bağlanır.
+
+Tasarım notları:
+    - SQLite varsayılan olarak foreign key kısıtlarını uygulamaz; bu modül
+      her bağlantıda `PRAGMA foreign_keys=ON` çalıştırarak referans
+      bütünlüğünü garanti eder (ör. bir Device silindiğinde bağlı Rule/
+      Profile kayıtlarının tutarlılığı ORM cascade'i ile birlikte DB
+      seviyesinde de korunur).
+    - `check_same_thread=False` yalnızca aynı sürecin farklı thread'lerinden
+      (ör. gelecekteki scheduler/monitor) aynı engine'i güvenle
+      kullanabilmek için açılmıştır; gerçek eşzamanlılık SQLAlchemy'nin
+      connection pool'u üzerinden yönetilir.
 """
 
 from __future__ import annotations
@@ -11,7 +22,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.exceptions import DatabaseError
@@ -21,12 +34,24 @@ from models.base import Base
 log = get_logger("database")
 
 
+def _enable_sqlite_foreign_keys(engine: Engine) -> None:
+    """Her yeni DBAPI bağlantısında SQLite foreign key kısıtlarını açar."""
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 class Database:
-    """SQLite database bağlantısını ve session fabrikasını yönetir."""
+    """SQLite database bağlantısını, şema kurulumunu ve session fabrikasını yönetir."""
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self._is_new_database = not self.db_path.exists()
 
         try:
             self.engine = create_engine(
@@ -34,25 +59,46 @@ class Database:
                 connect_args={"check_same_thread": False},
                 future=True,
             )
-        except Exception as exc:  # noqa: BLE001 - engine oluşturma hatası sarmalanıyor
+        except SQLAlchemyError as exc:
             raise DatabaseError(f"Database engine oluşturulamadı: {exc}") from exc
+
+        _enable_sqlite_foreign_keys(self.engine)
 
         self._session_factory = sessionmaker(
             bind=self.engine, expire_on_commit=False, future=True
         )
+        self._initialized = False
 
     def init_db(self) -> None:
-        """Tüm tabloları (yoksa) oluşturur."""
+        """
+        Şema tablolarını (yoksa) oluşturur.
+
+        Bu metod idempotenttir: tablolar zaten mevcutsa hiçbir şeyi
+        değiştirmez. Aynı Database örneği üzerinde birden çok kez
+        çağrılması güvenlidir.
+        """
         try:
             Base.metadata.create_all(self.engine)
-            log.info("Database tabloları hazır: %s", self.db_path)
-        except Exception as exc:  # noqa: BLE001
-            raise DatabaseError(f"Tablolar oluşturulamadı: {exc}") from exc
+        except SQLAlchemyError as exc:
+            raise DatabaseError(
+                f"Database şeması oluşturulamadı ({self.db_path}): {exc}"
+            ) from exc
+
+        if not self._initialized:
+            if self._is_new_database:
+                log.info("Yeni database oluşturuldu: %s", self.db_path)
+            else:
+                log.info("Mevcut database yüklendi: %s", self.db_path)
+        self._initialized = True
 
     @contextmanager
     def session(self) -> Iterator[Session]:
         """
         Otomatik commit/rollback yapan bir session context manager'ı.
+
+        Blok içinde hata oluşursa değişiklikler geri alınır (rollback) ve
+        `DatabaseError` olarak tekrar fırlatılır; başarılı tamamlanırsa
+        otomatik commit edilir. Session, blok sonunda mutlaka kapatılır.
 
         Kullanım:
             with db.session() as session:
@@ -62,11 +108,19 @@ class Database:
         try:
             yield session
             session.commit()
+        except SQLAlchemyError as exc:
+            session.rollback()
+            raise DatabaseError(f"Database işlemi başarısız oldu: {exc}") from exc
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def close(self) -> None:
+        """Engine'e ait tüm bağlantı havuzunu serbest bırakır."""
+        self.engine.dispose()
+        log.debug("Database bağlantısı kapatıldı: %s", self.db_path)
 
 
 _db_instance: Database | None = None
@@ -74,7 +128,16 @@ _db_instance: Database | None = None
 
 def get_database(db_path: Path | None = None) -> Database:
     """
-    Singleton Database örneğini döndürür. İlk çağrıda db_path zorunludur.
+    Process genelinde paylaşılan singleton Database örneğini döndürür.
+
+    İlk çağrıda `db_path` zorunludur; sonraki çağrılarda parametre göz
+    ardı edilir ve mevcut örnek döndürülür.
+
+    Args:
+        db_path: SQLite dosyasının yolu (yalnızca ilk çağrıda gereklidir).
+
+    Raises:
+        DatabaseError: İlk çağrıda db_path verilmezse.
     """
     global _db_instance
     if _db_instance is None:
@@ -83,3 +146,16 @@ def get_database(db_path: Path | None = None) -> Database:
         _db_instance = Database(db_path)
         _db_instance.init_db()
     return _db_instance
+
+
+def reset_database() -> None:
+    """
+    Singleton Database örneğini sıfırlar.
+
+    Yalnızca test senaryolarında, her testin kendi izole database'ini
+    kurabilmesi için kullanılır; normal CLI akışında çağrılmaz.
+    """
+    global _db_instance
+    if _db_instance is not None:
+        _db_instance.close()
+    _db_instance = None

@@ -18,3 +18,7 @@ netfather = "cli.main:run"
 
 [tool.setuptools]
 packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

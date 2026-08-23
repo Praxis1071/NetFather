@@ -20,8 +20,12 @@ Bu sürümde şunlar mevcuttur:
 - SQLAlchemy + SQLite database katmanı
 - Rotating file logging (`~/.local/share/netfather/logs/netfather.log`)
 - Temel ORM modelleri: `Device`, `Profile`, `Rule`, `Event`
-- Tam işlevsel cihaz yönetimi: `device add / list / info / remove`
-- `status` ve `config` komutları
+- Tam işlevsel cihaz yönetimi: `device add / list / info / remove` (isim/MAC
+  benzersizliği, MAC format doğrulama, silmeden önce onay)
+- `status`, `config` ve `--version` komutları
+- XDG Base Directory uyumlu config/veri dizinleri, güvenli (0700/0600) dosya
+  izinleri
+- `tests/` altında pytest tabanlı otomatik testler
 
 `scan`, `monitor` ve `rules` komutları bu fazda **yer tutucu**dur; ilgili
 işlevsellik sırasıyla FAZ 3, FAZ 6 ve FAZ 5'te eklenecektir.
@@ -47,6 +51,16 @@ Kurulum yapmadan doğrudan da çalıştırılabilir:
 ```bash
 python netfather.py --help
 ```
+
+### Geliştirme bağımlılıkları ve testler
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Testler `tests/` altındadır ve gerçek config/veri dizinlerine dokunmadan,
+her biri kendi geçici (temp) dizininde izole şekilde çalışır.
 
 ## Kullanım (FAZ 1)
 

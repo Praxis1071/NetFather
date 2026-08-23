@@ -21,6 +21,7 @@ fazlarda uygulanacak olan yer tutuculardır.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import Optional
 
 import typer
@@ -36,7 +37,10 @@ from cli.output import (
 )
 from core.config import Config, load_config
 from core.database import Database, get_database
-from core.exceptions import DeviceNotFoundError, NetFatherError
+from core.exceptions import (
+    DeviceNotFoundError,
+    NetFatherError,
+)
 from core.logger import get_logger, setup_logging
 from manager.device_manager import DeviceManager
 from network.interface import get_network_status
@@ -59,8 +63,33 @@ app.add_typer(rules_app, name="rules")
 _state: dict[str, Config | Database] = {}
 
 
+def _get_version() -> str:
+    """Paket sürümünü döndürür; kurulu değilse (ör. `python netfather.py` ile
+    doğrudan çalıştırıldığında) geliştirme sürümü olduğunu belirtir."""
+    try:
+        return _pkg_version("netfather")
+    except PackageNotFoundError:
+        return "0.1.0 (dev)"
+
+
+def _version_callback(show_version: bool) -> None:
+    if show_version:
+        console.print(f"NetFather {_get_version()}")
+        raise typer.Exit(code=0)
+
+
 def _bootstrap() -> tuple[Config, Database]:
-    """Config'i yükler, logging'i kurar ve database bağlantısını hazırlar."""
+    """
+    Config'i yükler, logging'i kurar ve database bağlantısını hazırlar.
+
+    Sonuç bir modül seviyesi cache'te tutulur; bir çalıştırma (process)
+    içinde birden fazla komut tetiklense bile config/DB yalnızca bir kez
+    başlatılır.
+
+    Raises:
+        NetFatherError: Config veya database başlatılamazsa (çağıran taraf
+            bunu yakalayıp kullanıcıya sade bir hata mesajı göstermelidir).
+    """
     if "config" in _state and "db" in _state:
         return _state["config"], _state["db"]  # type: ignore[return-value]
 
@@ -74,10 +103,24 @@ def _bootstrap() -> tuple[Config, Database]:
 
 
 @app.callback()
-def main_callback() -> None:
+def main_callback(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="NetFather sürümünü gösterir ve çıkar.",
+    ),
+) -> None:
     """NetFather - Yerel ağ cihaz ve erişim yönetim aracı."""
-    # Her komuttan önce config/db/logging hazırlanır.
-    _bootstrap()
+    # Her komuttan önce config/db/logging hazırlanır. Başlatma hataları
+    # (bozuk config, yazılamayan dizin vb.) kullanıcıya ham traceback yerine
+    # anlaşılır bir mesajla gösterilir.
+    try:
+        _bootstrap()
+    except NetFatherError as exc:
+        print_error(f"NetFather başlatılamadı: {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
@@ -210,10 +253,20 @@ def device_add(
 
 
 @device_app.command("remove")
-def device_remove(name: str = typer.Argument(..., help="Silinecek cihaz ismi")) -> None:
-    """Kayıtlı bir cihazı siler."""
+def device_remove(
+    name: str = typer.Argument(..., help="Silinecek cihaz ismi"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Onay istemeden doğrudan siler."
+    ),
+) -> None:
+    """Kayıtlı bir cihazı siler. Geri alınamaz bir işlemdir; varsayılan olarak onay ister."""
     _, db = _bootstrap()
     manager = DeviceManager(db)
+
+    if not yes and not typer.confirm(f"'{name}' cihazı silinsin mi?"):
+        print_info("İşlem iptal edildi.")
+        raise typer.Exit(code=0)
+
     try:
         manager.delete_device(name)
     except DeviceNotFoundError as exc:
