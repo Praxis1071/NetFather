@@ -14,8 +14,10 @@ Komut yapısı:
     netfather rules create
     netfather monitor
 
-FAZ 1'de yalnızca; status, config ve device (list/info/add/remove)
-komutları tam işlevseldir. scan, rules ve monitor komutları ilerideki
+FAZ 1'de status, config ve device (list/info/add/remove) komutları tam
+işlevseldir. FAZ2.1'de status komutu gerçek ağ arayüzü bilgisini gösterir.
+FAZ2.2'de scan komutu `ip neigh` tabanlı basic discovery ile çalışır
+(veritabanına otomatik kayıt yapmaz). rules ve monitor komutları ilerideki
 fazlarda uygulanacak olan yer tutuculardır.
 """
 
@@ -43,6 +45,7 @@ from core.exceptions import (
 )
 from core.logger import get_logger, setup_logging
 from manager.device_manager import DeviceManager
+from network.discovery import scan_network
 from network.interface import get_network_status
 
 log = get_logger("cli")
@@ -142,8 +145,31 @@ def status() -> None:
 
 @app.command()
 def scan() -> None:
-    """Yerel ağı tarayıp cihazları keşfeder. (FAZ 3'te uygulanacak)"""
-    print_warning("Ağ tarama özelliği henüz aktif değil. Bu özellik FAZ 3'te eklenecektir.")
+    """Yerel ağdaki komşu cihazları `ip neigh` üzerinden keşfeder (basic discovery)."""
+    config, _ = _bootstrap()
+
+    hosts = scan_network(timeout_seconds=config.network.scan_timeout_seconds)
+
+    if not hosts:
+        print_info(
+            "Hiçbir cihaz bulunamadı (ağ arayüzü olmayabilir, 'ip' komutu "
+            "kurulu olmayabilir ya da komşu tablosu boş olabilir)."
+        )
+        return
+
+    table = make_table("IP", "Arayüz", "MAC", "Durum", title="Keşfedilen Cihazlar")
+    for host in hosts:
+        table.add_row(
+            host.ip,
+            host.interface or "-",
+            host.mac or "-",
+            host.state or "-",
+        )
+    console.print(table)
+    print_info(
+        "Bu sonuçlar veritabanına otomatik kaydedilmedi. "
+        "Kaydetmek isterseniz 'netfather device add' kullanın."
+    )
 
 
 @app.command()
