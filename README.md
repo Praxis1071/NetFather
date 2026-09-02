@@ -108,3 +108,8 @@ NetFather/
 NetFather'a kesinlikle eklenmeyecekler: exploit sistemleri, CVE tarama,
 parola kırma, phishing, saldırı modülleri, WiFi saldırıları veya herhangi
 bir pentest özelliği.
+
+## License
+
+This project is licensed under the terms of the **GNU Lesser General Public License v3.0 (LGPL-3.0)**. 
+See the [LICENSE](LICENSE) file for full details.
