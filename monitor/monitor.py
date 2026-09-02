@@ -1,8 +1,8 @@
 """
-Canlı monitoring ekranı.
+Canlı trafik monitoring katmanı.
 
-FAZ 1 kapsamında yalnızca modül iskeleti bulunur. Rich tabanlı canlı
-terminal görünümü FAZ 6'da uygulanacaktır.
+Genel sistem TUI'si ``tui/`` altında mevcuttur. Bu modül gelecekte gerçek
+trafik/cihaz telemetry akışını üretmek için ayrılmıştır.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from core.database import Database
 
 
 class Monitor:
-    """Canlı cihaz durumu görünümünü yönetir (FAZ 6'da tamamlanacak)."""
+    """Gelecekte canlı telemetry akışını yönetecek monitoring servisi."""
 
     def __init__(self, db: Database) -> None:
         self.db = db

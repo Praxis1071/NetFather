@@ -8,6 +8,7 @@ import re
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from core.time_utils import utc_now
 from models.base import Base
 
 # Girişte ':' veya '-' ayraçlı kabul edilir; normalize sonrası her zaman ':' kullanılır.
@@ -28,7 +29,7 @@ class Device(Base):
     vendor: Mapped[str | None] = mapped_column(String(128), nullable=True)
     device_type: Mapped[str] = mapped_column(String(32), default="unknown")
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime, default=dt.datetime.utcnow
+        DateTime, default=utc_now
     )
     last_seen: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 

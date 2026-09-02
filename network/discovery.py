@@ -32,6 +32,7 @@ import subprocess
 from dataclasses import dataclass
 
 from core.logger import get_logger
+from network.device import lookup_vendor
 
 log = get_logger("network.discovery")
 
@@ -68,8 +69,8 @@ class DiscoveredHost:
     interface: str | None = None
     mac: str | None = None
     state: str | None = None
-    # FAZ2.2 kapsamında doldurulmaz; OUI/vendor lookup ileride ayrı bir
-    # adımda eklenecektir (bkz. network/device.py::lookup_vendor).
+    # Yerel OUI veritabanı mevcutsa ``scan_network`` tarafından doldurulur.
+    # Uzak vendor servislerine MAC adresi gönderilmez.
     vendor: str | None = None
 
 
@@ -235,4 +236,9 @@ def scan_network(timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT) -> lis
     raw_output = _run_ip_neigh(timeout_seconds)
     if raw_output is None:
         return []
-    return _parse_ip_neigh_output(raw_output)
+
+    hosts = _parse_ip_neigh_output(raw_output)
+    for host in hosts:
+        if host.mac:
+            host.vendor = lookup_vendor(host.mac)
+    return hosts

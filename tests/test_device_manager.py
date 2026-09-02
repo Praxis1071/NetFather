@@ -94,3 +94,40 @@ def test_update_last_seen_updates_timestamp_and_ip(manager: DeviceManager) -> No
 def test_update_last_seen_missing_device_raises(manager: DeviceManager) -> None:
     with pytest.raises(DeviceNotFoundError):
         manager.update_last_seen("AA:BB:CC:DD:EE:FF")
+
+
+def test_update_device_changes_editable_fields(manager: DeviceManager) -> None:
+    manager.add_device(name="Laptop", mac="AA:BB:CC:DD:EE:10")
+    updated = manager.update_device(
+        "Laptop",
+        new_name="Work Laptop",
+        ip="192.168.1.10",
+        vendor="Example",
+        device_type="laptop",
+    )
+    assert updated.name == "Work Laptop"
+    assert updated.ip == "192.168.1.10"
+    assert updated.vendor == "Example"
+    assert updated.device_type == "laptop"
+
+
+def test_sync_discovered_hosts_updates_only_registered(manager: DeviceManager) -> None:
+    from network.discovery import DiscoveredHost
+
+    manager.add_device(name="Phone", mac="AA:BB:CC:DD:EE:11")
+    count = manager.sync_discovered_hosts(
+        [
+            DiscoveredHost(
+                ip="192.168.1.20",
+                mac="aa:bb:cc:dd:ee:11",
+                vendor="Vendor A",
+                state="REACHABLE",
+            ),
+            DiscoveredHost(ip="192.168.1.21", mac="11:22:33:44:55:66", state="STALE"),
+        ]
+    )
+    assert count == 1
+    device = manager.get_device_by_name("Phone")
+    assert device.ip == "192.168.1.20"
+    assert device.vendor == "Vendor A"
+    assert device.last_seen is not None

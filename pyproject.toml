@@ -4,21 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netfather"
-version = "0.1.0"
-description = "Yerel ağ cihaz ve erişim yönetim aracı (CLI)."
+version = "0.3.0"
+description = "Linux için yerel ağ cihaz, profil ve zaman bazlı erişim yönetim aracı (CLI + TUI)."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "typer>=0.12,<1.0",
-    "rich>=13.7,<14.0",
-    "SQLAlchemy>=2.0,<3.0",
+    "rich>=13.7,<16.0",
+    "SQLAlchemy>=2.0,<2.1",
 ]
 
 [project.scripts]
 netfather = "cli.main:run"
 
 [tool.setuptools]
-packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler"]
+include-package-data = false
+packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler", "tui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
