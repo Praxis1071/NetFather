@@ -1,8 +1,9 @@
 """
-Zaman bazlı kural zamanlayıcısı.
+Zaman bazlı kural enforcement zamanlayıcısı.
 
-FAZ 1 kapsamında yalnızca modül iskeleti bulunur. APScheduler tabanlı
-periyodik kural değerlendirmesi FAZ 5'te uygulanacaktır.
+Kural CRUD ve schedule değerlendirmesi ``manager.rule_manager`` içinde
+mevcuttur. Bu modül ileride ayrıcalıklı firewall enforcement döngüsünü
+çalıştırmak için ayrılmıştır.
 """
 
 from __future__ import annotations
@@ -11,11 +12,11 @@ from core.database import Database
 
 
 class RuleScheduler:
-    """Kuralları periyodik olarak değerlendirip uygular (FAZ 5'te tamamlanacak)."""
+    """Gelecekte kuralları periyodik olarak uygulayacak enforcement servisi."""
 
     def __init__(self, db: Database) -> None:
         self.db = db
 
     def start(self) -> None:
-        """Zamanlayıcıyı başlatır (FAZ 5)."""
-        raise NotImplementedError("Scheduler FAZ 5'te uygulanacaktır.")
+        """Enforcement scheduler henüz uygulanmadığı için açık hata verir."""
+        raise NotImplementedError("Firewall enforcement scheduler henüz uygulanmamıştır.")

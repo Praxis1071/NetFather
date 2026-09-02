@@ -43,3 +43,15 @@ class RuleError(NetFatherError):
 
 class ProfileError(NetFatherError):
     """Profil oluşturma veya atama sırasında oluşan hatalarda fırlatılır."""
+
+
+class RuleNotFoundError(RuleError):
+    """İstenen kural bulunamadığında fırlatılır."""
+
+
+class ProfileNotFoundError(ProfileError):
+    """İstenen profil bulunamadığında fırlatılır."""
+
+
+class DuplicateProfileError(ProfileError):
+    """Aynı cihazda aynı isimli profil zaten varsa fırlatılır."""
