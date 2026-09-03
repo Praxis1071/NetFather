@@ -60,7 +60,7 @@ def test_decode_key_sequences_from_common_terminals(sequence: bytes, expected: s
 )
 def test_auto_mode_prefers_inline_for_common_terminal_families(term_name: str) -> None:
     caps = detect_terminal_capabilities(
-        FakeTTY(), FakeTTY(), {"TERM": term_name}, TerminalMode.AUTO
+        FakeTTY(), FakeTTY(), {"TERM": term_name}, TerminalMode.AUTO, platform_name="linux"
     )
     assert caps.interactive is True
     assert caps.mode is TerminalMode.INLINE
@@ -68,7 +68,7 @@ def test_auto_mode_prefers_inline_for_common_terminal_families(term_name: str) -
 
 
 def test_dumb_terminal_uses_plain_mode() -> None:
-    caps = detect_terminal_capabilities(FakeTTY(), FakeTTY(), {"TERM": "dumb"})
+    caps = detect_terminal_capabilities(FakeTTY(), FakeTTY(), {"TERM": "dumb"}, platform_name="linux")
     assert caps.mode is TerminalMode.PLAIN
     assert caps.cursor_addressing is False
 
@@ -84,7 +84,7 @@ def test_fullscreen_request_downgrades_when_terminfo_rejects_alt_screen(
 ) -> None:
     monkeypatch.setattr(terminal, "_terminfo_supports_alternate_screen", lambda term, fd: False)
     caps = detect_terminal_capabilities(
-        FakeTTY(), FakeTTY(), {"TERM": "xterm-256color"}, TerminalMode.FULLSCREEN
+        FakeTTY(), FakeTTY(), {"TERM": "xterm-256color"}, TerminalMode.FULLSCREEN, platform_name="linux"
     )
     assert caps.mode is TerminalMode.INLINE
     assert "fullscreen unsupported" in caps.reason
@@ -95,7 +95,7 @@ def test_fullscreen_request_uses_alt_screen_when_supported(
 ) -> None:
     monkeypatch.setattr(terminal, "_terminfo_supports_alternate_screen", lambda term, fd: True)
     caps = detect_terminal_capabilities(
-        FakeTTY(), FakeTTY(), {"TERM": "xterm-256color"}, TerminalMode.FULLSCREEN
+        FakeTTY(), FakeTTY(), {"TERM": "xterm-256color"}, TerminalMode.FULLSCREEN, platform_name="linux"
     )
     assert caps.mode is TerminalMode.FULLSCREEN
     assert caps.alternate_screen is True
@@ -103,7 +103,7 @@ def test_fullscreen_request_uses_alt_screen_when_supported(
 
 def test_environment_mode_override_is_honored() -> None:
     caps = detect_terminal_capabilities(
-        FakeTTY(), FakeTTY(), {"TERM": "xterm-256color", "NETFATHER_TUI_MODE": "plain"}
+        FakeTTY(), FakeTTY(), {"TERM": "xterm-256color", "NETFATHER_TUI_MODE": "plain"}, platform_name="linux"
     )
     assert caps.mode is TerminalMode.PLAIN
 

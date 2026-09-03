@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 from pathlib import Path
@@ -78,7 +79,7 @@ def test_existing_config_file_is_not_overwritten(
     # yazılır; aksi halde GeneralConfig'in dataclass varsayılanı (gerçek ev
     # dizini) kullanılır ve test gerçek dosya sistemine dokunabilir.
     config_path.write_text(
-        f'[general]\ndata_dir = "{isolated_data_dir}"\n\n'
+        f'[general]\ndata_dir = {json.dumps(str(isolated_data_dir))}\n\n'
         '[logging]\nlevel = "DEBUG"\n',
         encoding="utf-8",
     )
