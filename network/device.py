@@ -26,7 +26,25 @@ _DEFAULT_OUI_PATHS = (
     Path("/usr/share/misc/oui.txt"),
     Path("/var/lib/ieee-data/oui.txt"),
     Path("/usr/share/wireshark/manuf"),
+    Path("/usr/local/share/wireshark/manuf"),
+    Path("/opt/homebrew/share/wireshark/manuf"),
+    Path("/Applications/Wireshark.app/Contents/Resources/share/wireshark/manuf"),
 )
+
+
+def _platform_oui_paths() -> tuple[Path, ...]:
+    candidates = list(_DEFAULT_OUI_PATHS)
+    for key in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(key)
+        if base:
+            candidates.extend(
+                [
+                    Path(base) / "Wireshark" / "manuf",
+                    Path(base) / "Wireshark" / "share" / "wireshark" / "manuf",
+                ]
+            )
+    # Preserve order while removing duplicates.
+    return tuple(dict.fromkeys(candidates))
 
 
 def normalize_mac(mac: str) -> str:
@@ -42,7 +60,7 @@ def normalize_mac(mac: str) -> str:
 def find_oui_database() -> Path | None:
     """Return the first readable local OUI database path, if one is available."""
     override = os.environ.get("NETFATHER_OUI_FILE")
-    candidates = (Path(override).expanduser(),) if override else _DEFAULT_OUI_PATHS
+    candidates = (Path(override).expanduser(),) if override else _platform_oui_paths()
     for path in candidates:
         try:
             if path.is_file() and os.access(path, os.R_OK):

@@ -314,11 +314,19 @@ def _run_live_tui(
                 vertical_overflow="crop",
             ) as live:
                 live.update(_render_full_page(state, config, db, console), refresh=True)
+                last_size = console.size
                 while not state.should_quit:
                     try:
                         key = _read_key()
                         needs_redraw = False
 
+                        # SIGWINCH handles POSIX resize immediately.  Windows
+                        # has no SIGWINCH, so also poll Rich's terminal size
+                        # after each short input timeout.
+                        current_size = console.size
+                        if current_size != last_size:
+                            last_size = current_size
+                            needs_redraw = True
                         if resize_state["pending"]:
                             resize_state["pending"] = False
                             needs_redraw = True
@@ -339,11 +347,7 @@ def _run_live_tui(
 
 
 def run_tui(config: Config, db: Database, mode: str | TerminalMode = TerminalMode.AUTO) -> None:
-    """Start NetFather's terminal UI using a capability-aware safe mode."""
-    if not sys.platform.startswith("linux"):
-        print_error("NetFather TUI şu anda Linux gerektirir.")
-        return
-
+    """Start NetFather's cross-platform terminal UI using a safe mode."""
     capabilities = detect_terminal_capabilities(
         sys.stdin,
         sys.stdout,

@@ -1,244 +1,326 @@
-"""
-Yerel ağ cihaz keşfi (basic discovery).
+"""Cross-platform passive local-network discovery.
 
-Linux üzerinde çekirdeğin komşu (neighbor/ARP) tablosunu `ip neigh`
-komutuyla okur, ayrıştırır ve normalize edilmiş bir sonuç listesi olarak
-döndürür.
+The module reads the host operating system's neighbor/ARP cache; it does not
+send active probes and never persists unknown devices automatically.
 
-Tasarım, `network/interface.py`'deki (FAZ2.1) desenle birebir tutarlıdır:
+Backends:
+- Linux: ``ip neigh``
+- Windows: PowerShell ``Get-NetNeighbor`` with ``arp -a`` fallback
+- macOS: ``arp -an``
 
-    OS command wrapper (_run_ip_neigh)
-            ↓ ham stdout metni
-       pure parser (_parse_ip_neigh_output)
-            ↓
-    normalized result (list[DiscoveredHost])
-
-Bu modül BASIC discovery'dir; Scapy'ye **hiçbir şekilde bağımlı değildir**
-ve onu import etmez. Scapy tabanlı, kullanıcının açıkça seçebileceği
-ayrıntılı/aktif bir discovery backend'i ileride ayrı bir modül olarak
-eklenecektir — bu modül o backend'in yerini almaz, onunla aynı normalize
-sonuç formatını (DiscoveredHost) paylaşacak şekilde tasarlanmıştır.
-
-Bu modül keşfetmekten sorumludur; keşfedilen cihazları veritabanına
-kaydetmek (persistence) bu modülün sorumluluğu değildir ve burada
-yapılmaz — o karar `manager` katmanına bırakılmıştır.
+All backends normalize into :class:`DiscoveredHost` and optionally enrich MAC
+addresses using NetFather's local-only OUI lookup.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
 
 from core.logger import get_logger
+from core.platform import PlatformFamily, platform_family
 from network.device import lookup_vendor
 
 log = get_logger("network.discovery")
 
 _COMMAND_TIMEOUT_SECONDS_DEFAULT = 5
 
-# `ip neigh` çıktısında normal bir neighbor kaydı sayılmayacak, "anlamsız"
-# kabul edilen adresler. Aşırı agresif filtrelemekten kaçınmak için burada
-# yalnızca kesin olarak yorumlanabilen durumlar (loopback, multicast)
-# elenir; bilinmeyen/olağan dışı ama geçerli bir unicast adres asla
-# atılmaz.
+
 def _is_meaningless_address(ip_text: str) -> bool:
-    """Loopback veya multicast gibi gerçek bir "komşu cihaz" temsil etmeyen adresleri eler."""
     try:
         ip_obj = ipaddress.ip_address(ip_text)
     except ValueError:
-        # Adres olarak ayrıştırılamıyorsa filtreleme kararı veremeyiz;
-        # satırın kendisi zaten genel token doğrulamasında elenecektir.
-        return False
-    return ip_obj.is_loopback or ip_obj.is_multicast
+        return True
+    return (
+        ip_obj.is_loopback
+        or ip_obj.is_multicast
+        or ip_obj.is_unspecified
+        or ip_text == "255.255.255.255"
+    )
 
 
 @dataclass
 class DiscoveredHost:
-    """
-    Ağ taramasında (`ip neigh` üzerinden) bulunan bir cihazın normalize
-    edilmiş kaydı.
-
-    `ip` dışındaki tüm alanlar isteğe bağlıdır: `ip neigh` çıktısında bir
-    komşu kaydının MAC adresi olmayabilir (ör. `FAILED` durumu) — bu,
-    kaydın çöpe atılması gereken bir sebep değildir.
-    """
+    """Normalized passive neighbor-cache record."""
 
     ip: str
     interface: str | None = None
     mac: str | None = None
     state: str | None = None
-    # Yerel OUI veritabanı mevcutsa ``scan_network`` tarafından doldurulur.
-    # Uzak vendor servislerine MAC adresi gönderilmez.
     vendor: str | None = None
 
 
 def _normalize_discovery_mac(mac: str) -> str:
-    """
-    Discovery katmanı için MAC'i lowercase, ':' ayraçlı forma normalize eder.
-
-    NOT: Bu, `network/device.py::normalize_mac()`'in (uppercase, persistence
-    katmanı için) davranışından bilinçli olarak farklıdır. `ip neigh` zaten
-    doğal olarak lowercase MAC döndürür; discovery sonucu bir cihaz olarak
-    kaydedilmek istendiğinde (bu modülün sorumluluğu değildir) persistence
-    katmanı kendi normalizasyonunu (uppercase) zaten uygular.
-    """
     return mac.strip().lower().replace("-", ":")
 
 
+def _valid_mac_or_none(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    candidate = _normalize_discovery_mac(value)
+    if re.fullmatch(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}", candidate):
+        if candidate != "00:00:00:00:00:00":
+            return candidate
+    return None
+
+
+def _dedupe(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
+    by_identity: dict[tuple[str, str | None], DiscoveredHost] = {}
+    for host in hosts:
+        by_identity[(host.ip, host.interface)] = host
+    return list(by_identity.values())
+
+
+def _enrich_vendors(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
+    for host in hosts:
+        if host.mac and not host.vendor:
+            host.vendor = lookup_vendor(host.mac)
+    return hosts
+
+
+def _run_process(args: list[str], timeout_seconds: int) -> str | None:
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.debug("Discovery command failed (%s): %s", args[0] if args else "?", exc)
+        return None
+    if result.returncode != 0:
+        log.debug(
+            "Discovery command returned %s (%s): %s",
+            result.returncode,
+            args[0] if args else "?",
+            result.stderr.strip(),
+        )
+        return None
+    return result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Linux: ip neigh
+# ---------------------------------------------------------------------------
+
+
 def _parse_neigh_line(line: str) -> DiscoveredHost | None:
-    """
-    `ip neigh` çıktısının tek bir satırını ayrıştırır.
-
-    Beklenen minimum yapı: ``<ip> dev <interface> [lladdr <mac>] [state]``.
-    Bu yapıya uymayan (ip/dev/interface üçlüsü bulunamayan) satırlar
-    malformed kabul edilip sessizce (None dönerek) atlanır — exception
-    fırlatılmaz.
-
-    `state`, sabit bir değer kümesine hard-code edilmez: kalan token'ların
-    sonuncusu neyse o, olduğu gibi korunur. Bu, `ip neigh`'in
-    REACHABLE/STALE/DELAY/PROBE/FAILED/INCOMPLETE/NOARP/PERMANENT gibi
-    bilinen durumlarının yanı sıra ileride eklenebilecek bilinmeyen ama
-    geçerli durumları da kaybetmeden taşımasını sağlar.
-
-    Args:
-        line: `ip neigh` çıktısının tek bir satırı.
-
-    Returns:
-        Ayrıştırılmış DiscoveredHost, ya da satır malformed/anlamsızsa None.
-    """
     tokens = line.split()
-
-    # En az "<ip> dev <interface>" üçlüsü olmalı.
     if len(tokens) < 3 or tokens[1] != "dev":
         return None
 
     ip_text = tokens[0]
     interface = tokens[2]
-
     if _is_meaningless_address(ip_text):
         return None
 
     remaining = tokens[3:]
-
     mac: str | None = None
     if len(remaining) >= 2 and remaining[0] == "lladdr":
-        mac = _normalize_discovery_mac(remaining[1])
+        mac = _valid_mac_or_none(remaining[1])
         remaining = remaining[2:]
 
     state = remaining[-1] if remaining else None
-
     return DiscoveredHost(ip=ip_text, interface=interface, mac=mac, state=state)
 
 
 def _parse_ip_neigh_output(raw_output: str) -> list[DiscoveredHost]:
-    """
-    `ip neigh` komutunun ham çıktısını normalize edilmiş bir listeye dönüştürür.
-
-    Saf bir metin ayrıştırıcıdır: hiçbir sistem çağrısı yapmaz, global
-    duruma dokunmaz, hiçbir koşulda exception fırlatmaz. Boş veya tamamen
-    bozuk girdi için boş liste döner.
-
-    Aynı `(ip, interface)` çiftine sahip birden fazla satır gelirse
-    (duplicate), **son görülen kayıt kazanır** ve sonuç deterministik
-    olur; bu, `ip neigh` çıktısında normalde beklenmez ama girdi
-    tekrarlarına karşı sonucu öngörülebilir kılmak için açıkça
-    tanımlanmıştır.
-
-    Args:
-        raw_output: `_run_ip_neigh`'ten gelen ham stdout metni.
-
-    Returns:
-        Normalize edilmiş, tekilleştirilmiş DiscoveredHost listesi.
-    """
-    by_identity: dict[tuple[str, str | None], DiscoveredHost] = {}
-
+    hosts: list[DiscoveredHost] = []
     for line in raw_output.splitlines():
         line = line.strip()
         if not line:
             continue
-
         host = _parse_neigh_line(line)
-        if host is None:
-            log.debug("ip neigh satırı ayrıştırılamadı, atlanıyor: %r", line)
-            continue
-
-        by_identity[(host.ip, host.interface)] = host
-
-    return list(by_identity.values())
+        if host is not None:
+            hosts.append(host)
+        else:
+            log.debug("Skipping unparseable ip-neigh line: %r", line)
+    return _dedupe(hosts)
 
 
 def _run_ip_neigh(timeout_seconds: int) -> str | None:
-    """
-    `ip neigh` komutunu çalıştırır ve ham stdout metnini döndürür.
-
-    `ip` komutu bulunamazsa, zaman aşımına uğrarsa ya da sıfırdan farklı
-    bir çıkış koduyla dönerse None döner; bu bir hata değil, normal bir
-    "şu an keşif yapılamıyor" durumu olarak ele alınır. Hiçbir exception
-    dışarı sızmaz.
-
-    Args:
-        timeout_seconds: Komutun en fazla ne kadar bekleneceği (saniye).
-
-    Returns:
-        Komutun ham stdout çıktısı, ya da tespit mümkün değilse None.
-    """
     ip_binary = shutil.which("ip")
     if ip_binary is None:
-        log.debug("'ip' komutu bulunamadı; ağ keşfi atlanıyor.")
         return None
+    return _run_process([ip_binary, "neigh"], timeout_seconds)
 
+
+def _scan_linux(timeout_seconds: int) -> list[DiscoveredHost]:
+    raw = _run_ip_neigh(timeout_seconds)
+    return _parse_ip_neigh_output(raw) if raw else []
+
+
+# ---------------------------------------------------------------------------
+# Windows: Get-NetNeighbor + arp -a fallback
+# ---------------------------------------------------------------------------
+
+_WINDOWS_NEIGHBOR_PS = r"""
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$ErrorActionPreference = 'SilentlyContinue'
+Get-NetNeighbor -AddressFamily IPv4 |
+    Where-Object { $_.IPAddress -and $_.State -ne 'Unreachable' } |
+    Select-Object IPAddress, LinkLayerAddress, State, InterfaceAlias |
+    ConvertTo-Json -Compress
+""".strip()
+
+
+def _find_powershell() -> str | None:
+    return shutil.which("powershell.exe") or shutil.which("powershell") or shutil.which("pwsh")
+
+
+def _run_windows_neighbors(timeout_seconds: int) -> str | None:
+    shell = _find_powershell()
+    if shell is None:
+        return None
+    return _run_process(
+        [shell, "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_NEIGHBOR_PS],
+        timeout_seconds,
+    )
+
+
+def _parse_windows_neighbors_json(raw_output: str) -> list[DiscoveredHost]:
     try:
-        result = subprocess.run(
-            [ip_binary, "neigh"],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        log.warning("'ip neigh' çalıştırılamadı: %s", exc)
-        return None
-
-    if result.returncode != 0:
-        log.debug(
-            "'ip neigh' sıfırdan farklı çıkış koduyla döndü (%s): %s",
-            result.returncode,
-            result.stderr.strip(),
-        )
-        return None
-
-    return result.stdout
-
-
-def scan_network(timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT) -> list[DiscoveredHost]:
-    """
-    Yerel ağdaki komşu cihazları `ip neigh` üzerinden keşfeder.
-
-    Bu fonksiyon yalnızca **keşfeder**; hiçbir şekilde veritabanına yazmaz
-    (discovery/persistence ayrımı bilinçlidir). Sonuçları kaydetmek isteyen
-    çağıran taraf, dönen listeyi kendi kararıyla `manager` katmanına
-    aktarmalıdır.
-
-    Keşif başarısız olursa (arayüz yok, 'ip' komutu bulunamadı, zaman
-    aşımı vb.) hiçbir istisna fırlatmaz; boş bir liste döner.
-
-    Args:
-        timeout_seconds: `ip neigh` komutunun en fazla ne kadar
-            bekleneceği (saniye). Varsayılan, `core.config.NetworkConfig`
-            içindeki `scan_timeout_seconds` varsayılanıyla aynıdır (5).
-
-    Returns:
-        Normalize edilmiş, tekilleştirilmiş DiscoveredHost listesi
-        (keşif başarısızsa boş liste).
-    """
-    raw_output = _run_ip_neigh(timeout_seconds)
-    if raw_output is None:
+        payload = json.loads(raw_output)
+    except (json.JSONDecodeError, TypeError):
         return []
+    rows = payload if isinstance(payload, list) else [payload]
+    hosts: list[DiscoveredHost] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ip_text = str(row.get("IPAddress") or "").strip()
+        if not ip_text or _is_meaningless_address(ip_text):
+            continue
+        hosts.append(
+            DiscoveredHost(
+                ip=ip_text,
+                interface=str(row.get("InterfaceAlias") or "").strip() or None,
+                mac=_valid_mac_or_none(row.get("LinkLayerAddress")),
+                state=str(row.get("State") or "").strip() or None,
+            )
+        )
+    return _dedupe(hosts)
 
-    hosts = _parse_ip_neigh_output(raw_output)
-    for host in hosts:
-        if host.mac:
-            host.vendor = lookup_vendor(host.mac)
-    return hosts
+_WINDOWS_ARP_INTERFACE_RE = re.compile(r"^\s*Interface:\s+(?P<interface>\S+)", re.I)
+_WINDOWS_ARP_ROW_RE = re.compile(
+    r"^\s*(?P<ip>\d{1,3}(?:\.\d{1,3}){3})\s+"
+    r"(?P<mac>[0-9A-Fa-f-]{17})\s+(?P<state>\S+)\s*$"
+)
+
+
+def _parse_windows_arp_output(raw_output: str) -> list[DiscoveredHost]:
+    interface: str | None = None
+    hosts: list[DiscoveredHost] = []
+    for line in raw_output.splitlines():
+        interface_match = _WINDOWS_ARP_INTERFACE_RE.match(line)
+        if interface_match:
+            interface = interface_match.group("interface")
+            continue
+        match = _WINDOWS_ARP_ROW_RE.match(line)
+        if not match:
+            continue
+        ip_text = match.group("ip")
+        if _is_meaningless_address(ip_text):
+            continue
+        hosts.append(
+            DiscoveredHost(
+                ip=ip_text,
+                interface=interface,
+                mac=_valid_mac_or_none(match.group("mac")),
+                state=match.group("state").upper(),
+            )
+        )
+    return _dedupe(hosts)
+
+
+def _run_arp_a(timeout_seconds: int) -> str | None:
+    arp = shutil.which("arp")
+    if arp is None:
+        return None
+    return _run_process([arp, "-a"], timeout_seconds)
+
+
+def _scan_windows(timeout_seconds: int) -> list[DiscoveredHost]:
+    raw = _run_windows_neighbors(timeout_seconds)
+    if raw:
+        hosts = _parse_windows_neighbors_json(raw)
+        if hosts:
+            return hosts
+    raw = _run_arp_a(timeout_seconds)
+    return _parse_windows_arp_output(raw) if raw else []
+
+
+# ---------------------------------------------------------------------------
+# macOS: arp -an
+# ---------------------------------------------------------------------------
+
+_MACOS_ARP_RE = re.compile(
+    r"^\?\s+\((?P<ip>[^)]+)\)\s+at\s+(?P<mac>\S+)\s+on\s+(?P<interface>\S+)(?P<rest>.*)$"
+)
+
+
+def _parse_macos_arp_output(raw_output: str) -> list[DiscoveredHost]:
+    hosts: list[DiscoveredHost] = []
+    for line in raw_output.splitlines():
+        match = _MACOS_ARP_RE.match(line.strip())
+        if not match:
+            continue
+        ip_text = match.group("ip")
+        if _is_meaningless_address(ip_text):
+            continue
+        mac_token = match.group("mac")
+        incomplete = mac_token.lower() in {"(incomplete)", "incomplete"}
+        hosts.append(
+            DiscoveredHost(
+                ip=ip_text,
+                interface=match.group("interface"),
+                mac=None if incomplete else _valid_mac_or_none(mac_token),
+                state="INCOMPLETE" if incomplete else "REACHABLE",
+            )
+        )
+    return _dedupe(hosts)
+
+
+def _run_macos_arp(timeout_seconds: int) -> str | None:
+    arp = shutil.which("arp") or "/usr/sbin/arp"
+    return _run_process([arp, "-an"], timeout_seconds)
+
+
+def _scan_macos(timeout_seconds: int) -> list[DiscoveredHost]:
+    raw = _run_macos_arp(timeout_seconds)
+    return _parse_macos_arp_output(raw) if raw else []
+
+
+# ---------------------------------------------------------------------------
+# Public facade
+# ---------------------------------------------------------------------------
+
+
+def scan_network(
+    timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT,
+    platform_name: str | None = None,
+) -> list[DiscoveredHost]:
+    """Read the local neighbor cache for the current operating system."""
+    family = platform_family(platform_name)
+    try:
+        if family is PlatformFamily.LINUX:
+            hosts = _scan_linux(timeout_seconds)
+        elif family is PlatformFamily.WINDOWS:
+            hosts = _scan_windows(timeout_seconds)
+        elif family is PlatformFamily.MACOS:
+            hosts = _scan_macos(timeout_seconds)
+        else:
+            raw = _run_arp_a(timeout_seconds)
+            hosts = _parse_windows_arp_output(raw) if raw else []
+        return _enrich_vendors(hosts)
+    except Exception as exc:  # noqa: BLE001 - discovery must not crash CLI/TUI
+        log.warning("Discovery failed for %s: %s", family.value, exc)
+        return []

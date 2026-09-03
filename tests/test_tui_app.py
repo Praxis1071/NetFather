@@ -311,6 +311,9 @@ def test_run_tui_redraws_on_real_sigwinch_signal(
     import os
     import signal
 
+    if not hasattr(signal, "SIGWINCH"):
+        pytest.skip("SIGWINCH bu platformda mevcut değil")
+
     from core.database import Database
 
     db = Database(tmp_path / "test.db")

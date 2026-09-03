@@ -26,6 +26,7 @@ from core.database import Database, get_database
 from core.diagnostics import run_diagnostics
 from core.exceptions import DeviceNotFoundError, NetFatherError
 from core.logger import get_logger, setup_logging
+from core.platform import get_platform_info
 from core.version import VERSION
 from manager.device_manager import DeviceManager
 from manager.profile_manager import ProfileManager
@@ -130,14 +131,34 @@ def tui(
     run_tui(config, db, mode=normalized_mode)
 
 
+@app.command("platform")
+def platform_info() -> None:
+    """İşletim sistemi, mimari ve seçilen network backend'ini gösterir."""
+    config, _ = _bootstrap()
+    info = get_platform_info()
+    print_title("Platform")
+    table = make_table("Alan", "Değer")
+    table.add_row("OS", info.system)
+    table.add_row("Release", info.release or "-")
+    table.add_row("Architecture", info.machine or "-")
+    table.add_row("Official support", "yes" if info.supported else "experimental")
+    table.add_row("Network backend", info.network_backend)
+    table.add_row("Config", str(config.config_path))
+    table.add_row("Data", str(config.data_dir))
+    console.print(table)
+
+
 @app.command()
 def status() -> None:
     """Aktif ağ arayüzünü ve temel runtime yollarını gösterir."""
     config, _ = _bootstrap()
     net = get_network_status()
+    info = get_platform_info()
 
     print_title("Network Status")
     table = make_table("Alan", "Değer")
+    table.add_row("Platform", f"{info.system} ({info.machine or '-'})")
+    table.add_row("Backend", info.network_backend)
     table.add_row("Interface", net.interface or "[dim]tespit edilemedi[/dim]")
     table.add_row("IP", net.local_ip or "[dim]tespit edilemedi[/dim]")
     table.add_row("Gateway", net.gateway or "[dim]tespit edilemedi[/dim]")
@@ -178,13 +199,13 @@ def scan(
         help="Yalnızca zaten kayıtlı cihazların IP/vendor/last_seen bilgisini günceller.",
     )
 ) -> None:
-    """`ip neigh` üzerinden temel yerel ağ keşfi yapar."""
+    """İşletim sisteminin neighbor/ARP cache'i üzerinden pasif keşif yapar."""
     config, db = _bootstrap()
     hosts = scan_network(timeout_seconds=config.network.scan_timeout_seconds)
 
     if not hosts:
         print_info(
-            "Hiçbir cihaz bulunamadı (arayüz yok, 'ip' komutu eksik veya komşu tablosu boş olabilir)."
+            "Hiçbir cihaz bulunamadı (aktif ağ olmayabilir veya işletim sisteminin komşu/ARP cache'i boş olabilir)."
         )
         return
 

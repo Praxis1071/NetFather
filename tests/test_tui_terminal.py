@@ -106,3 +106,25 @@ def test_environment_mode_override_is_honored() -> None:
         FakeTTY(), FakeTTY(), {"TERM": "xterm-256color", "NETFATHER_TUI_MODE": "plain"}
     )
     assert caps.mode is TerminalMode.PLAIN
+
+
+def test_windows_console_without_term_uses_inline_mode() -> None:
+    caps = detect_terminal_capabilities(
+        FakeTTY(), FakeTTY(), {}, TerminalMode.AUTO, platform_name="win32"
+    )
+    assert caps.interactive is True
+    assert caps.term == "windows-console"
+    assert caps.mode is TerminalMode.INLINE
+
+
+def test_windows_extended_key_decoder() -> None:
+    assert terminal.decode_windows_key("\xe0", "H") == "UP"
+    assert terminal.decode_windows_key("\xe0", "P") == "DOWN"
+    assert terminal.decode_windows_key("\xe0", "G") == "HOME"
+    assert terminal.decode_windows_key("\xe0", "O") == "END"
+    assert terminal.decode_windows_key("q") == "QUIT"
+
+
+def test_windows_terminal_input_mode_is_noop() -> None:
+    with terminal.terminal_input_mode(FakeTTY(), platform_name="win32"):
+        pass

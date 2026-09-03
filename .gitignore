@@ -25,6 +25,8 @@ data/*
 *.egg-info/
 build/
 dist/
+release/
+*.spec
 
 # Editor / OS
 .vscode/
