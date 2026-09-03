@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
@@ -44,6 +45,7 @@ def test_load_config_creates_data_and_log_directories(
     assert (cfg.data_dir / "logs").is_dir()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows uses ACLs rather than POSIX chmod bits")
 def test_created_directories_have_secure_permissions(
     tmp_path: Path, isolated_data_dir: Path
 ) -> None:
@@ -119,3 +121,18 @@ def test_negative_scan_timeout_raises_config_error(
 
     with pytest.raises(ConfigError):
         config_module.load_config(config_path=config_path)
+
+
+def test_default_config_escapes_windows_style_data_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    windows_style = Path(r"C:\Users\Test User\AppData\Local\NetFather")
+    monkeypatch.setattr(config_module, "DEFAULT_DATA_DIR", windows_style)
+    config_path = tmp_path / "windows-config.toml"
+
+    cfg = config_module.load_config(config_path=config_path)
+
+    assert cfg.data_dir == windows_style
+    # A second parse verifies the generated TOML is syntactically valid.
+    cfg2 = config_module.load_config(config_path=config_path)
+    assert cfg2.data_dir == windows_style

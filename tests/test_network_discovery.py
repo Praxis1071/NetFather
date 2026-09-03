@@ -253,14 +253,14 @@ def test_scan_network_returns_empty_list_when_detection_unavailable(
 ) -> None:
     monkeypatch.setattr(discovery_module, "_run_ip_neigh", lambda timeout_seconds: None)
 
-    assert scan_network() == []
+    assert scan_network(platform_name="linux") == []
 
 
 def test_scan_network_returns_parsed_results(monkeypatch: pytest.MonkeyPatch) -> None:
     raw = "192.168.1.1 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE\n"
     monkeypatch.setattr(discovery_module, "_run_ip_neigh", lambda timeout_seconds: raw)
 
-    hosts = scan_network()
+    hosts = scan_network(platform_name="linux")
 
     assert len(hosts) == 1
     assert hosts[0].ip == "192.168.1.1"
@@ -269,7 +269,7 @@ def test_scan_network_returns_parsed_results(monkeypatch: pytest.MonkeyPatch) ->
 def test_scan_network_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(discovery_module.shutil, "which", lambda _cmd: None)
 
-    assert scan_network() == []
+    assert scan_network(platform_name="linux") == []
 
 
 def test_scan_network_passes_timeout_through(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -281,7 +281,7 @@ def test_scan_network_passes_timeout_through(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(discovery_module, "_run_ip_neigh", fake_run_ip_neigh)
 
-    scan_network(timeout_seconds=12)
+    scan_network(timeout_seconds=12, platform_name="linux")
 
     assert captured["timeout_seconds"] == 12
 
@@ -357,3 +357,73 @@ def test_normalize_discovery_mac_lowercases_and_converts_dashes() -> None:
 
 def test_normalize_discovery_mac_already_lowercase_colon() -> None:
     assert _normalize_discovery_mac("aa:bb:cc:dd:ee:ff") == "aa:bb:cc:dd:ee:ff"
+
+# ---------------------------------------------------------------------------
+# v0.4 multi-platform discovery parsers/backends
+# ---------------------------------------------------------------------------
+
+
+def test_parse_windows_neighbors_json() -> None:
+    raw = '[{"IPAddress":"192.168.1.1","LinkLayerAddress":"AA-BB-CC-DD-EE-FF","State":"Reachable","InterfaceAlias":"Wi-Fi"}]'
+    hosts = discovery_module._parse_windows_neighbors_json(raw)
+    assert hosts == [
+        DiscoveredHost(
+            ip="192.168.1.1",
+            interface="Wi-Fi",
+            mac="aa:bb:cc:dd:ee:ff",
+            state="Reachable",
+        )
+    ]
+
+
+def test_parse_windows_arp_fallback() -> None:
+    raw = """Interface: 192.168.1.50 --- 0x6
+  Internet Address      Physical Address      Type
+  192.168.1.1           aa-bb-cc-dd-ee-ff     dynamic
+"""
+    hosts = discovery_module._parse_windows_arp_output(raw)
+    assert len(hosts) == 1
+    assert hosts[0].ip == "192.168.1.1"
+    assert hosts[0].mac == "aa:bb:cc:dd:ee:ff"
+
+
+def test_parse_macos_arp_output() -> None:
+    raw = "? (192.168.1.1) at aa:bb:cc:dd:ee:ff on en0 ifscope [ethernet]\n"
+    hosts = discovery_module._parse_macos_arp_output(raw)
+    assert hosts == [
+        DiscoveredHost(
+            ip="192.168.1.1",
+            interface="en0",
+            mac="aa:bb:cc:dd:ee:ff",
+            state="REACHABLE",
+        )
+    ]
+
+
+def test_windows_scan_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        discovery_module,
+        "_run_windows_neighbors",
+        lambda timeout: '[{"IPAddress":"10.0.0.1","LinkLayerAddress":"11-22-33-44-55-66","State":"Stale","InterfaceAlias":"Ethernet"}]',
+    )
+    monkeypatch.setattr(discovery_module, "lookup_vendor", lambda mac: None)
+    hosts = scan_network(platform_name="win32")
+    assert len(hosts) == 1
+    assert hosts[0].interface == "Ethernet"
+
+
+def test_macos_scan_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        discovery_module,
+        "_run_macos_arp",
+        lambda timeout: "? (10.0.0.1) at 11:22:33:44:55:66 on en0 ifscope [ethernet]\n",
+    )
+    monkeypatch.setattr(discovery_module, "lookup_vendor", lambda mac: None)
+    hosts = scan_network(platform_name="darwin")
+    assert len(hosts) == 1
+    assert hosts[0].interface == "en0"
+
+
+def test_windows_neighbor_parser_filters_global_broadcast() -> None:
+    raw = '[{"IPAddress":"255.255.255.255","LinkLayerAddress":"ff-ff-ff-ff-ff-ff","State":"Permanent","InterfaceAlias":"Ethernet"}]'
+    assert discovery_module._parse_windows_neighbors_json(raw) == []

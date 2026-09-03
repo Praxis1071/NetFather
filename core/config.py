@@ -1,21 +1,15 @@
 """
 NetFather config yönetimi.
 
-Uygulama ayarları TOML formatında saklanır ve XDG Base Directory
-Specification'a uyar:
-
-    - Config dosyası : $XDG_CONFIG_HOME/netfather/config.toml
-                        (varsayılan: ~/.config/netfather/config.toml)
-    - Veri dizini     : $XDG_DATA_HOME/netfather/
-                        (varsayılan: ~/.local/share/netfather/)
-
-Config dosyası veya üst dizinleri yoksa ilk çalıştırmada otomatik olarak
-güvenli izinlerle (0700) oluşturulur.
+Uygulama ayarları TOML formatında saklanır. Linux'ta XDG Base Directory,
+Windows'ta APPDATA/LOCALAPPDATA ve macOS'ta Application Support yolları
+kullanılır. XDG_CONFIG_HOME/XDG_DATA_HOME override'ları tüm platformlarda
+portable geliştirme ve test ortamları için desteklenir.
 """
 
 from __future__ import annotations
 
-import os
+import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +21,7 @@ else:  # pragma: no cover - proje 3.12+ hedefler, bu dal normalde çalışmaz
     import tomli as tomllib  # type: ignore[no-redef]
 
 from core.exceptions import ConfigError
+from core.platform import apply_private_mode, default_config_dir, default_data_dir
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
@@ -36,30 +31,14 @@ _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _SECURE_DIR_MODE = 0o700
 
 
-def _xdg_config_home() -> Path:
-    """XDG_CONFIG_HOME ortam değişkenini, tanımlı değilse ~/.config'i döndürür."""
-    value = os.environ.get("XDG_CONFIG_HOME")
-    if value:
-        return Path(value).expanduser()
-    return Path.home() / ".config"
-
-
-def _xdg_data_home() -> Path:
-    """XDG_DATA_HOME ortam değişkenini, tanımlı değilse ~/.local/share'i döndürür."""
-    value = os.environ.get("XDG_DATA_HOME")
-    if value:
-        return Path(value).expanduser()
-    return Path.home() / ".local" / "share"
-
-
-DEFAULT_CONFIG_DIR = _xdg_config_home() / "netfather"
+DEFAULT_CONFIG_DIR = default_config_dir()
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
-DEFAULT_DATA_DIR = _xdg_data_home() / "netfather"
+DEFAULT_DATA_DIR = default_data_dir()
 
 DEFAULT_CONFIG_TOML = """\
 [general]
 app_name = "NetFather"
-data_dir = "{data_dir}"
+data_dir = {data_dir}
 
 [database]
 filename = "netfather.db"
@@ -156,12 +135,12 @@ class Config:
 def _ensure_default_config(config_path: Path) -> None:
     """Config dosyası yoksa güvenli izinlerle ve varsayılan içerikle oluşturur."""
     config_path.parent.mkdir(parents=True, exist_ok=True, mode=_SECURE_DIR_MODE)
-    os.chmod(config_path.parent, _SECURE_DIR_MODE)
+    apply_private_mode(config_path.parent, _SECURE_DIR_MODE)
 
     if not config_path.exists():
-        content = DEFAULT_CONFIG_TOML.format(data_dir=str(DEFAULT_DATA_DIR))
+        content = DEFAULT_CONFIG_TOML.format(data_dir=json.dumps(str(DEFAULT_DATA_DIR)))
         config_path.write_text(content, encoding="utf-8")
-        os.chmod(config_path, 0o600)
+        apply_private_mode(config_path, 0o600)
 
 
 def _build_config(raw: dict[str, Any], config_path: Path) -> Config:
@@ -189,14 +168,12 @@ def load_config(config_path: Path | None = None) -> Config:
     """
     Config dosyasını yükler. Dosya yoksa varsayılan değerlerle oluşturur.
 
-    İlk çağrıda config dizini ve veri dizini yoksa oluşturulur (0700 izinle),
-    çünkü NetFather ağdaki cihazlara ait MAC/IP gibi bilgileri saklar ve bu
-    verinin diğer sistem kullanıcılarınca okunabilir olmaması gerekir.
+    İlk çağrıda config ve data dizinleri oluşturulur. POSIX sistemlerde
+    owner-only izinleri uygulanır; Windows'ta dosya sistemi ACL'leri korunur.
 
     Args:
-        config_path: Alternatif bir config dosyası yolu. Verilmezse
-            XDG_CONFIG_HOME (veya ~/.config) altındaki varsayılan yol
-            kullanılır.
+        config_path: Alternatif config yolu. Verilmezse işletim sisteminin
+            platform-native uygulama veri yolu kullanılır.
 
     Returns:
         Doldurulmuş ve doğrulanmış Config nesnesi.
@@ -219,8 +196,8 @@ def load_config(config_path: Path | None = None) -> Config:
     config = _build_config(raw, path)
 
     config.data_dir.mkdir(parents=True, exist_ok=True, mode=_SECURE_DIR_MODE)
-    os.chmod(config.data_dir, _SECURE_DIR_MODE)
+    apply_private_mode(config.data_dir, _SECURE_DIR_MODE)
     (config.data_dir / "logs").mkdir(parents=True, exist_ok=True, mode=_SECURE_DIR_MODE)
-    os.chmod(config.data_dir / "logs", _SECURE_DIR_MODE)
+    apply_private_mode(config.data_dir / "logs", _SECURE_DIR_MODE)
 
     return config

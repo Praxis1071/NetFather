@@ -15,11 +15,11 @@ Tasarım kararları:
 from __future__ import annotations
 
 import logging
-import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from core.config import Config
+from core.platform import apply_private_mode
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -43,11 +43,7 @@ def _build_file_handler(log_path: Path, config: Config) -> RotatingFileHandler:
     )
 
     # Dosya bu noktada handler tarafından zaten oluşturulmuş olur.
-    try:
-        os.chmod(log_path, _SECURE_FILE_MODE)
-    except OSError:
-        # İzin değiştirilemese bile logging'i engellemeye değmez.
-        pass
+    apply_private_mode(log_path, _SECURE_FILE_MODE)
 
     return handler
 

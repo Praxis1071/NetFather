@@ -1,128 +1,101 @@
-"""
-Ağ arayüzü tespiti.
+"""Cross-platform active network interface, local IP and gateway detection.
 
-Aktif ağ arayüzü, yerel IP ve varsayılan gateway bilgisi Linux üzerinde
-`ip route get` komutunun çıktısından türetilir.
-
-Tasarım, komut çalıştırmayı (OS command wrapper) çıktı ayrıştırmadan
-(pure parser) bilinçli olarak ayırır:
-
-    OS command wrapper (_run_ip_route_get)
-            ↓ ham stdout metni
-       pure parser (_parse_route_get_output)
-            ↓
-    normalized result (NetworkStatus)
-
-Bu ayrım sayesinde ayrıştırma mantığı gerçek bir `ip` komutu veya ağ
-bağlantısı gerektirmeden, sabit string girdileriyle test edilebilir.
+Linux uses ``ip route get``; Windows uses PowerShell's ``Get-NetIPConfiguration``;
+macOS uses ``route -n get default`` + ``ipconfig getifaddr``.  A UDP socket probe
+provides a safe local-IP fallback on unknown/minimal systems.  Parsers are kept
+separate from command execution so they can be tested without touching the host.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass
 
 from core.logger import get_logger
+from core.platform import PlatformFamily, platform_family
 
 log = get_logger("network.interface")
 
-# `ip route get` hedefe hiçbir paket göndermez; yalnızca çekirdeğin
-# yönlendirme tablosuna "bu hedefe gidilirken hangi arayüz/gateway/kaynak
-# IP kullanılırdı" diye sorar. Hedefin gerçekten erişilebilir olması
-# gerekmez, yalnızca varsayılan rotayı ortaya çıkarmak için bir örnek
-# genel-ağ adresi olarak kullanılır.
 _ROUTE_PROBE_TARGET = "8.8.8.8"
 _COMMAND_TIMEOUT_SECONDS = 3
 
-# Örnek çıktı:
-#   8.8.8.8 via 192.168.1.1 dev wlan0 src 192.168.1.50 uid 1000
-# "via <gateway>" kısmı isteğe bağlıdır (hedef doğrudan bağlı bir ağdaysa
-# görünmeyebilir); "dev <interface>" her zaman bulunur.
 _ROUTE_GET_PATTERN = re.compile(
     r"(?:via\s+(?P<gateway>\S+)\s+)?dev\s+(?P<interface>\S+)"
     r"(?:.*?\bsrc\s+(?P<src_ip>\S+))?"
 )
+_MACOS_ROUTE_FIELD = re.compile(r"^\s*(?P<key>gateway|interface):\s*(?P<value>\S+)\s*$", re.M)
 
 
 @dataclass
 class NetworkStatus:
-    """Aktif ağ arayüzü bilgilerini tutar."""
+    """Normalized active network information."""
 
     interface: str | None = None
     local_ip: str | None = None
     gateway: str | None = None
-    # NOT: netmask tespiti FAZ2.1 kapsamı dışında bırakıldı. `ip route get`
-    # çıktısı netmask içermez; bunun için ayrı bir `ip addr show` çağrısı
-    # gerekir. `status` komutu şu an netmask'i göstermiyor, bu yüzden
-    # kapsam en küçük tutuldu; ihtiyaç doğarsa ayrı bir adımda eklenebilir.
     netmask: str | None = None
 
 
-def _run_ip_route_get(target: str = _ROUTE_PROBE_TARGET) -> str | None:
-    """
-    `ip route get <target>` komutunu çalıştırır ve ham stdout metnini döndürür.
-
-    `ip` komutu bulunamazsa, zaman aşımına uğrarsa ya da sıfırdan farklı
-    bir çıkış koduyla dönerse (ör. hiç varsayılan rota yoksa, tamamen
-    çevrimdışı bir makine) None döner. Bu, bir hata değil; normal bir
-    "şu an tespit edilemiyor" durumu olarak ele alınır ve exception
-    fırlatılmaz.
-
-    Args:
-        target: Rota sorgusu için kullanılan örnek hedef adres.
-
-    Returns:
-        Komutun ham stdout çıktısı, ya da tespit mümkün değilse None.
-    """
-    ip_binary = shutil.which("ip")
-    if ip_binary is None:
-        log.debug("'ip' komutu bulunamadı; ağ arayüzü tespiti atlanıyor.")
-        return None
-
+def _run_process(args: list[str], timeout: int = _COMMAND_TIMEOUT_SECONDS) -> str | None:
     try:
         result = subprocess.run(
-            [ip_binary, "route", "get", target],
+            args,
             capture_output=True,
             text=True,
-            timeout=_COMMAND_TIMEOUT_SECONDS,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
             check=False,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
-        log.warning("'ip route get' çalıştırılamadı: %s", exc)
+        log.debug("Network command failed (%s): %s", args[0] if args else "?", exc)
         return None
-
     if result.returncode != 0:
         log.debug(
-            "'ip route get %s' sıfırdan farklı çıkış koduyla döndü (%s): %s",
-            target,
+            "Network command returned %s (%s): %s",
             result.returncode,
+            args[0] if args else "?",
             result.stderr.strip(),
         )
         return None
-
     return result.stdout
 
 
+def _socket_local_ip(target: str = _ROUTE_PROBE_TARGET) -> str | None:
+    """Return the outbound IPv4 address without sending application data."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.settimeout(1.0)
+        sock.connect((target, 80))
+        value = sock.getsockname()[0]
+        return value if value and value != "0.0.0.0" else None
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+# ---------------------------------------------------------------------------
+# Linux backend
+# ---------------------------------------------------------------------------
+
+
+def _run_ip_route_get(target: str = _ROUTE_PROBE_TARGET) -> str | None:
+    ip_binary = shutil.which("ip")
+    if ip_binary is None:
+        log.debug("'ip' command not found; Linux route detection is unavailable.")
+        return None
+    return _run_process([ip_binary, "route", "get", target])
+
+
 def _parse_route_get_output(raw_output: str) -> NetworkStatus:
-    """
-    `ip route get` komutunun ham çıktısını `NetworkStatus`'a dönüştürür.
-
-    Saf bir metin ayrıştırıcıdır: hiçbir sistem çağrısı yapmaz, yalnızca
-    verilen string'i işler. Boş veya beklenmeyen formatta girdi için tüm
-    alanları None olan bir NetworkStatus döner (hata fırlatmaz).
-
-    Args:
-        raw_output: `_run_ip_route_get`'ten gelen ham stdout metni.
-
-    Returns:
-        Ayrıştırılmış NetworkStatus.
-    """
     match = _ROUTE_GET_PATTERN.search(raw_output)
     if match is None:
         return NetworkStatus()
-
     return NetworkStatus(
         interface=match.group("interface"),
         local_ip=match.group("src_ip"),
@@ -130,19 +103,117 @@ def _parse_route_get_output(raw_output: str) -> NetworkStatus:
     )
 
 
-def get_network_status() -> NetworkStatus:
-    """
-    Aktif ağ arayüzü, yerel IP ve varsayılan gateway bilgisini döndürür.
+def _linux_network_status() -> NetworkStatus:
+    raw = _run_ip_route_get()
+    return _parse_route_get_output(raw) if raw else NetworkStatus()
 
-    Tespit başarısız olursa (arayüz yok, 'ip' komutu bulunamadı, zaman
-    aşımı vb.) hiçbir istisna fırlatmaz; tüm alanları None olan boş bir
-    NetworkStatus döner. Böylece çağıran taraf (CLI) bunu normal bir
-    "tespit edilemedi" durumu olarak gösterebilir.
 
-    Returns:
-        Tespit edilen (veya tespit edilemediyse boş) NetworkStatus.
-    """
-    raw_output = _run_ip_route_get()
-    if raw_output is None:
+# ---------------------------------------------------------------------------
+# Windows backend
+# ---------------------------------------------------------------------------
+
+_WINDOWS_STATUS_PS = r"""
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$ErrorActionPreference = 'SilentlyContinue'
+$c = Get-NetIPConfiguration | Where-Object {
+    $_.IPv4DefaultGateway -and $_.IPv4Address
+} | Select-Object -First 1
+if ($null -ne $c) {
+    [PSCustomObject]@{
+        Interface = $c.InterfaceAlias
+        IP = @($c.IPv4Address)[0].IPAddress
+        Gateway = @($c.IPv4DefaultGateway)[0].NextHop
+    } | ConvertTo-Json -Compress
+}
+""".strip()
+
+
+def _find_powershell() -> str | None:
+    return shutil.which("powershell.exe") or shutil.which("powershell") or shutil.which("pwsh")
+
+
+def _run_windows_network_config() -> str | None:
+    shell = _find_powershell()
+    if shell is None:
+        return None
+    return _run_process([shell, "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_STATUS_PS])
+
+
+def _parse_windows_network_json(raw_output: str) -> NetworkStatus:
+    try:
+        payload = json.loads(raw_output)
+    except (json.JSONDecodeError, TypeError):
         return NetworkStatus()
-    return _parse_route_get_output(raw_output)
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    if not isinstance(payload, dict):
+        return NetworkStatus()
+    return NetworkStatus(
+        interface=str(payload.get("Interface") or "") or None,
+        local_ip=str(payload.get("IP") or "") or None,
+        gateway=str(payload.get("Gateway") or "") or None,
+    )
+
+
+def _windows_network_status() -> NetworkStatus:
+    raw = _run_windows_network_config()
+    status = _parse_windows_network_json(raw) if raw else NetworkStatus()
+    if status.local_ip is None:
+        status.local_ip = _socket_local_ip()
+    return status
+
+
+# ---------------------------------------------------------------------------
+# macOS backend
+# ---------------------------------------------------------------------------
+
+
+def _run_macos_route_get() -> str | None:
+    route = shutil.which("route") or "/sbin/route"
+    return _run_process([route, "-n", "get", "default"])
+
+
+def _parse_macos_route_get_output(raw_output: str) -> NetworkStatus:
+    values = {m.group("key"): m.group("value") for m in _MACOS_ROUTE_FIELD.finditer(raw_output)}
+    return NetworkStatus(interface=values.get("interface"), gateway=values.get("gateway"))
+
+
+def _run_macos_ipconfig(interface: str) -> str | None:
+    ipconfig = shutil.which("ipconfig") or "/usr/sbin/ipconfig"
+    raw = _run_process([ipconfig, "getifaddr", interface])
+    return raw.strip() if raw and raw.strip() else None
+
+
+def _macos_network_status() -> NetworkStatus:
+    raw = _run_macos_route_get()
+    status = _parse_macos_route_get_output(raw) if raw else NetworkStatus()
+    if status.interface:
+        status.local_ip = _run_macos_ipconfig(status.interface)
+    if status.local_ip is None:
+        status.local_ip = _socket_local_ip()
+    return status
+
+
+# ---------------------------------------------------------------------------
+# Public facade
+# ---------------------------------------------------------------------------
+
+
+def get_network_status(platform_name: str | None = None) -> NetworkStatus:
+    """Return normalized network status for Linux, Windows or macOS.
+
+    ``platform_name`` exists for deterministic tests and internal diagnostics;
+    normal callers should omit it.
+    """
+    family = platform_family(platform_name)
+    try:
+        if family is PlatformFamily.LINUX:
+            return _linux_network_status()
+        if family is PlatformFamily.WINDOWS:
+            return _windows_network_status()
+        if family is PlatformFamily.MACOS:
+            return _macos_network_status()
+        return NetworkStatus(local_ip=_socket_local_ip())
+    except Exception as exc:  # noqa: BLE001 - status must never take down CLI/TUI
+        log.warning("Network status detection failed for %s: %s", family.value, exc)
+        return NetworkStatus(local_ip=_socket_local_ip())

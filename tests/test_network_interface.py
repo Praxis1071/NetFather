@@ -179,7 +179,7 @@ def test_get_network_status_returns_parsed_result(
         lambda: "8.8.8.8 via 192.168.1.1 dev wlan0 src 192.168.1.50\n",
     )
 
-    status = get_network_status()
+    status = get_network_status(platform_name="linux")
 
     assert status.interface == "wlan0"
     assert status.local_ip == "192.168.1.50"
@@ -191,7 +191,7 @@ def test_get_network_status_returns_empty_when_detection_unavailable(
 ) -> None:
     monkeypatch.setattr(interface_module, "_run_ip_route_get", lambda: None)
 
-    status = get_network_status()
+    status = get_network_status(platform_name="linux")
 
     assert status == NetworkStatus()
 
@@ -200,6 +200,45 @@ def test_get_network_status_never_raises(monkeypatch: pytest.MonkeyPatch) -> Non
     # 'ip' hiç kurulu olmasa bile get_network_status() exception fırlatmamalı.
     monkeypatch.setattr(interface_module.shutil, "which", lambda _cmd: None)
 
-    status = get_network_status()
+    status = get_network_status(platform_name="linux")
 
     assert status == NetworkStatus()
+
+# ---------------------------------------------------------------------------
+# v0.4 multi-platform parsers/backends
+# ---------------------------------------------------------------------------
+
+
+def test_parse_windows_network_json() -> None:
+    raw = '{"Interface":"Wi-Fi","IP":"192.168.1.50","Gateway":"192.168.1.1"}'
+    status = interface_module._parse_windows_network_json(raw)
+    assert status == NetworkStatus(interface="Wi-Fi", local_ip="192.168.1.50", gateway="192.168.1.1")
+
+
+def test_windows_status_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        interface_module,
+        "_run_windows_network_config",
+        lambda: '{"Interface":"Ethernet","IP":"10.0.0.2","Gateway":"10.0.0.1"}',
+    )
+    status = get_network_status(platform_name="win32")
+    assert status.interface == "Ethernet"
+    assert status.gateway == "10.0.0.1"
+
+
+def test_parse_macos_route_output() -> None:
+    raw = "   route to: default\n    gateway: 192.168.1.1\n  interface: en0\n"
+    status = interface_module._parse_macos_route_get_output(raw)
+    assert status.interface == "en0"
+    assert status.gateway == "192.168.1.1"
+
+
+def test_macos_status_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        interface_module,
+        "_run_macos_route_get",
+        lambda: "gateway: 192.168.0.1\ninterface: en0\n",
+    )
+    monkeypatch.setattr(interface_module, "_run_macos_ipconfig", lambda interface: "192.168.0.23")
+    status = get_network_status(platform_name="darwin")
+    assert status == NetworkStatus(interface="en0", local_ip="192.168.0.23", gateway="192.168.0.1")

@@ -1,0 +1,150 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag matching core/version.py (for example v0.4.0)"
+        required: true
+        default: "v0.4.0"
+      publish_release:
+        description: "Publish/update the GitHub Release after builds finish"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt "pytest>=8,<10"
+      - name: Check version/tag consistency
+        run: python scripts/check_version.py --tag "${RELEASE_TAG}"
+      - name: Run tests
+        run: python -m pytest -q
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-22.04
+            arch: x64
+          - target: linux-arm64
+            runner: ubuntu-22.04-arm
+            arch: arm64
+          - target: windows-x64
+            runner: windows-2025
+            arch: x64
+          - target: windows-arm64
+            runner: windows-11-arm
+            arch: arm64
+          - target: macos-x64
+            runner: macos-15-intel
+            arch: x64
+          - target: macos-arm64
+            runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          architecture: ${{ matrix.arch }}
+          cache: pip
+
+      - name: Verify native runner architecture
+        run: python scripts/check_architecture.py --expected "${{ matrix.arch }}"
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements.txt "pyinstaller>=6.22,<7"
+
+      - name: Build standalone executable
+        run: python -m PyInstaller --clean --noconfirm --onefile --name netfather netfather.py
+
+      - name: Smoke test executable (Windows)
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          .\dist\netfather.exe --version
+          .\dist\netfather.exe platform
+
+      - name: Smoke test executable (POSIX)
+        if: ${{ !startsWith(matrix.target, 'windows-') }}
+        shell: bash
+        run: |
+          ./dist/netfather --version
+          ./dist/netfather platform
+
+      - name: Package release asset
+        run: python scripts/package_release.py --target "${{ matrix.target }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: release/NetFather-*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: ${{ github.event_name == 'push' || inputs.publish_release == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum NetFather-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" release-assets/* --clobber
+          else
+            gh release create "${RELEASE_TAG}" release-assets/* \
+              --title "NetFather ${RELEASE_TAG}" \
+              --generate-notes \
+              --target "${GITHUB_SHA}"
+          fi

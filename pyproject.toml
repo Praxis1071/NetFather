@@ -4,21 +4,39 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netfather"
-version = "0.1.0"
-description = "Yerel ağ cihaz ve erişim yönetim aracı (CLI)."
+version = "0.4.0"
+description = "Windows, Linux ve macOS için yerel ağ cihaz, profil ve zaman bazlı erişim yönetim aracı (CLI + TUI)."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "typer>=0.12,<1.0",
-    "rich>=13.7,<14.0",
-    "SQLAlchemy>=2.0,<3.0",
+    "rich>=13.7,<16.0",
+    "SQLAlchemy>=2.0,<2.1",
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Networking",
+]
+
+[project.urls]
+Homepage = "https://github.com/Praxis1071/NetFather"
+Releases = "https://github.com/Praxis1071/NetFather/releases"
+Issues = "https://github.com/Praxis1071/NetFather/issues"
 
 [project.scripts]
 netfather = "cli.main:run"
 
 [tool.setuptools]
-packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler"]
+include-package-data = false
+packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler", "tui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
