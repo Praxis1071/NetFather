@@ -206,17 +206,9 @@ def test_reliable_terminal_size_restores_even_on_exception(
 # ---------------------------------------------------------------------------
 
 
-def test_read_key_ctrl_c_returns_quit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    REGRESYON TESTİ (kök neden #2): `tty.setraw()` termios LFLAG'inden
-    ISIG'i de kapatır; bu yüzden ham moddayken Ctrl+C artık bir
-    KeyboardInterrupt/SIGINT ÜRETMEZ, yalnızca ham 0x03 baytı olarak
-    okunur. `_read_key` bu baytı açıkça "QUIT" olarak yorumlamalıdır,
-    aksi halde Ctrl+C'nin TUI içinde hiçbir etkisi olmaz.
-    """
-    monkeypatch.setattr(tui_app, "_wait_for_input", lambda timeout: True)
-    monkeypatch.setattr(tui_app.sys.stdin, "read", lambda n: "\x03")
-
+def test_read_key_delegates_to_descriptor_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """app katmanı terminal parser'ını tekrar etmemeli; portable reader'ı kullanmalı."""
+    monkeypatch.setattr(tui_app, "read_key", lambda *args, **kwargs: "QUIT")
     assert tui_app._read_key() == "QUIT"
 
 
@@ -266,6 +258,7 @@ def test_run_tui_always_refreshes_live_on_update(
 
     monkeypatch.setattr(tui_app.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(tui_app.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("TERM", "xterm-256color")
 
     # Gerçek termios/tty çağrıları bu test ortamında (tty olmadığı için)
     # başarısız olur; burada yalnızca Live'ın nasıl çağrıldığını test
@@ -325,6 +318,7 @@ def test_run_tui_redraws_on_real_sigwinch_signal(
 
     monkeypatch.setattr(tui_app.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(tui_app.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setattr(tui_app, "_raw_terminal", lambda stream: contextlib.nullcontext())
 
     update_calls: list[bool] = []

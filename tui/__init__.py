@@ -13,8 +13,9 @@ Modüller:
     state.py   Rich'ten bağımsız, saf durum/navigasyon mantığı.
     data.py    Ekranlar için veri toplama (mevcut manager/network/core
                fonksiyonlarını çağıran ince sarmalayıcılar).
-    render.py  Rich tabanlı görsel oluşturma fonksiyonları.
-    app.py     Ana döngü: klavye okuma, ekran güncelleme, terminal yönetimi.
+    render.py   Rich tabanlı görsel oluşturma fonksiyonları.
+    terminal.py Terminal capability detection ve portable klavye girişi.
+    app.py      Ana döngü: ekran güncelleme ve terminal yönetimi.
 """
 
 from __future__ import annotations

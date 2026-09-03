@@ -1,19 +1,16 @@
 """
 TUI ana döngüsü.
 
-Bu modül, klavye okuma (ham/raw terminal modu), Rich `Live` ile yeniden
-çizim ve ekranlar arası dispatch mantığını içerir. Hiçbir iş mantığı
-burada YOKTUR — yalnızca `tui/data.py` ve `tui/render.py`'yi çağırır.
-
-Linux'a özgüdür (`termios`/`tty`); bu, projenin hedef platformuyla
-(CachyOS/Arch/Linux) tutarlıdır.
+Bu modül, portable terminal girdi katmanı, Rich `Live` ile yeniden çizim
+ve ekranlar arası dispatch mantığını içerir. Hiçbir iş mantığı burada
+YOKTUR — yalnızca `tui/data.py`, `tui/render.py` ve `tui/terminal.py`'yi
+çağırır. POSIX terminal ayrıntıları capability-aware bir katmanda tutulur.
 """
 
 from __future__ import annotations
 
 import contextlib
 import os
-import select
 import signal
 import sys
 from typing import IO, Iterator
@@ -54,6 +51,7 @@ from tui.render import (
     render_overview_screen,
     render_overview_strip,
     render_placeholder_screen,
+    render_terminal_too_small,
 )
 from tui.state import (
     AppState,
@@ -61,7 +59,14 @@ from tui.state import (
     apply_navigation_move,
     record_scan_failure,
     record_scan_result,
+    NAV_ORDER,
     select_current_screen,
+)
+from tui.terminal import (
+    TerminalMode,
+    detect_terminal_capabilities,
+    read_key,
+    terminal_input_mode,
 )
 
 log = get_logger("tui.app")
@@ -108,69 +113,18 @@ def _reliable_terminal_size() -> Iterator[None]:
 
 @contextlib.contextmanager
 def _raw_terminal(stream: IO[str]) -> Iterator[None]:
-    """
-    Terminali ham (raw) moda alır ve çıkışta (hata olsa bile) eski ayarlara geri döndürür.
-
-    Yalnızca Linux/Unix terminallerinde çalışır (`termios`/`tty` stdlib).
-    """
-    import termios
-    import tty
-
-    fd = stream.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
+    """Compatibility wrapper around the safer cbreak terminal mode."""
+    with terminal_input_mode(stream):
         yield
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-def _wait_for_input(timeout: float) -> bool:
-    """`timeout` saniye içinde stdin'den okunabilir veri gelip gelmediğini döndürür."""
-    ready, _, _ = select.select([sys.stdin], [], [], timeout)
-    return bool(ready)
 
 
 def _read_key(timeout: float = _KEY_READ_TIMEOUT_SECONDS) -> str:
-    """
-    Tek bir klavye olayını okur ve normalize edilmiş bir sembolik isim döndürür.
-
-    Dönüş değerleri: "UP", "DOWN", "ENTER", "QUIT", "REFRESH",
-    "SYNC" ya da zaman aşımı/tanınmayan tuş için "" (boş string).
-    """
-    if not _wait_for_input(timeout):
-        return ""
-
-    ch = sys.stdin.read(1)
-
-    if ch == "\x03":
-        # Ctrl+C. tty.setraw() termios LFLAG'inden ISIG'i de kapatır, bu
-        # yüzden ham modda Ctrl+C artık bir SIGINT/KeyboardInterrupt
-        # ÜRETMEZ — yalnızca ham 0x03 baytı olarak okunur. Bunu açıkça
-        # QUIT olarak ele almazsak Ctrl+C'nin TUI içinde hiçbir etkisi
-        # olmaz.
-        return "QUIT"
-
-    if ch == "\x1b":
-        # Olası bir ANSI escape dizisi (ok tuşları: ESC [ A / ESC [ B).
-        if _wait_for_input(_ESCAPE_SEQUENCE_TIMEOUT_SECONDS):
-            rest = sys.stdin.read(2)
-            if rest == "[A":
-                return "UP"
-            if rest == "[B":
-                return "DOWN"
-        return ""  # yalnızca ESC ya da tanınmayan dizi: yok say
-
-    if ch in ("\r", "\n"):
-        return "ENTER"
-    if ch in ("q", "Q"):
-        return "QUIT"
-    if ch in ("r", "R"):
-        return "REFRESH"
-    if ch in ("s", "S"):
-        return "SYNC"
-    return ""
-
+    """Read one normalized key event from the terminal descriptor."""
+    return read_key(
+        sys.stdin,
+        timeout=timeout,
+        escape_timeout=_ESCAPE_SEQUENCE_TIMEOUT_SECONDS,
+    )
 
 def _build_active_view_content(state: AppState, config: Config, db: Database, overview_data):
     """Seçili ekrana göre Active View panelinin içeriğini oluşturur."""
@@ -212,7 +166,12 @@ def _build_active_view_content(state: AppState, config: Config, db: Database, ov
 
 
 def _render_full_page(state: AppState, config: Config, db: Database, console: Console):
-    """Tüm sayfayı (header, overview şeridi, navigation, active view, footer) oluşturur."""
+    """Build a terminal-size-aware full page."""
+    width, height = console.size
+    if width < 44 or height < 14:
+        return render_terminal_too_small(width, height)
+
+    compact = width < 100 or height < 30
     overview_data = get_overview_data(config, db, state)
 
     if not overview_data.database_ok:
@@ -220,8 +179,6 @@ def _render_full_page(state: AppState, config: Config, db: Database, console: Co
     elif overview_data.network_status_known:
         system_ok = True
     else:
-        # Database çalışıyor ama ağ tespiti şu an mümkün değil (ör. offline
-        # makine) — bu kesin bir "sorun" değil, bu yüzden "bilinmiyor".
         system_ok = None
 
     active_view_content = _build_active_view_content(state, config, db, overview_data)
@@ -229,12 +186,12 @@ def _render_full_page(state: AppState, config: Config, db: Database, console: Co
     return build_layout(
         console,
         header=render_header(system_ok),
-        overview_strip=render_overview_strip(overview_data),
-        navigation=render_navigation(state),
+        overview_strip=render_overview_strip(overview_data, compact=compact),
+        navigation=render_navigation(state, compact=compact),
         active_view=render_active_view(state, active_view_content),
-        footer=render_footer(state.status_message),
+        footer=render_footer(state.status_message, compact=compact),
+        compact=compact,
     )
-
 
 def _handle_key(key: str, state: AppState, config: Config, db: Database | None = None) -> None:
     """Tek bir klavye olayını duruma uygular. Rich/terminal ile ilgili hiçbir şey yapmaz."""
@@ -244,6 +201,10 @@ def _handle_key(key: str, state: AppState, config: Config, db: Database | None =
         apply_navigation_move(state, -1)
     elif key == "DOWN":
         apply_navigation_move(state, +1)
+    elif key == "HOME":
+        state.nav_index = 0
+    elif key == "END":
+        state.nav_index = len(NAV_ORDER) - 1
     elif key == "ENTER":
         select_current_screen(state)
     elif key == "REFRESH":
@@ -266,65 +227,98 @@ def _handle_key(key: str, state: AppState, config: Config, db: Database | None =
             state.status_message = error or f"{updated} kayıtlı cihaz güncellendi."
 
 
-def run_tui(config: Config, db: Database) -> None:
-    """
-    NetFather TUI'sini başlatır.
-
-    `python -m netfather` (parametresiz) çağrıldığında `cli/commands.py`
-    tarafından çağrılır. TUI mevcut CLI ile aynı `config`/`db` nesnelerini
-    kullanır; ayrı bir bootstrap yapmaz.
-
-    Bu fonksiyon hiçbir şekilde exception ile sonlanmaz: interaktif olmayan
-    bir terminalde çağrılırsa, ya da döngü içinde beklenmeyen bir hata
-    oluşursa, kullanıcıya anlaşılır bir mesaj gösterip zarifçe döner.
-    Terminal, her koşulda (Ctrl+C dahil) eski durumuna geri yüklenir.
-    """
-    if not sys.platform.startswith("linux"):
-        print_error("NetFather TUI şu anda Linux terminali gerektirir.")
-        return
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print_error("NetFather TUI interaktif bir terminal gerektirir.")
-        print_info("Komut satırı kullanımı için: netfather --help")
-        return
-
-    # Live ve raw-terminal ile ilgili importlar modül üstünde zaten yapıldı;
-    # burada yalnızca gerçek terminal etkileşimi başlıyor.
-    state = AppState()
-    console = Console()
-
-    # Terminal yeniden boyutlandırıldığında (SIGWINCH) bir sonraki
-    # klavye olayını beklemeden hemen yeniden çizim yapılabilmesi için.
-    # Bu bir thread DEĞİLDİR — sinyal işleyicisi ana thread üzerinde,
-    # normal Python bytecode'ları arasında asenkron olarak çağrılır;
-    # dolayısıyla "gereksiz concurrency" yaratmaz, yalnızca bir bayrak
-    # (flag) ayarlar. Gerçek yeniden çizim, ana döngüde (aşağıda)
-    # senkron şekilde yapılır.
-    resize_state = {"pending": False}
+def _install_resize_handler(resize_state: dict[str, bool]):
+    """Install SIGWINCH when possible; return the previous handler."""
+    if not hasattr(signal, "SIGWINCH"):
+        return None
 
     def _on_resize(signum: int, frame: object) -> None:
         resize_state["pending"] = True
 
-    has_sigwinch = hasattr(signal, "SIGWINCH")
-    previous_handler = signal.signal(signal.SIGWINCH, _on_resize) if has_sigwinch else None
+    try:
+        return signal.signal(signal.SIGWINCH, _on_resize)
+    except (ValueError, OSError):
+        # signal.signal() is only legal in the main thread.  Embedders may
+        # launch NetFather elsewhere; the TUI must still remain usable.
+        return None
+
+
+def _restore_resize_handler(previous_handler) -> None:
+    if previous_handler is None or not hasattr(signal, "SIGWINCH"):
+        return
+    try:
+        signal.signal(signal.SIGWINCH, previous_handler)
+    except (ValueError, OSError):
+        pass
+
+
+def _plain_command_to_key(command: str) -> str:
+    normalized = command.strip()
+    aliases = {
+        "": "",
+        "j": "DOWN",
+        "down": "DOWN",
+        "k": "UP",
+        "up": "UP",
+        "g": "HOME",
+        "G": "END",
+        "home": "HOME",
+        "end": "END",
+        "enter": "ENTER",
+        "open": "ENTER",
+        "r": "REFRESH",
+        "refresh": "REFRESH",
+        "s": "SYNC",
+        "sync": "SYNC",
+        "q": "QUIT",
+        "quit": "QUIT",
+        "exit": "QUIT",
+    }
+    return aliases.get(normalized, "")
+
+
+def _run_plain_tui(config: Config, db: Database, console: Console) -> None:
+    """Line-oriented fallback for TERM=dumb and other limited terminals."""
+    state = AppState()
+    state.status_message = "Limited terminal detected: plain compatibility mode."
+
+    while not state.should_quit:
+        console.print(_render_full_page(state, config, db, console))
+        try:
+            command = input("netfather [j/k, enter, r, s, q]> ")
+        except (EOFError, KeyboardInterrupt):
+            break
+        key = _plain_command_to_key(command)
+        if key:
+            _handle_key(key, state, config, db)
+
+
+def _run_live_tui(
+    config: Config,
+    db: Database,
+    console: Console,
+    mode: TerminalMode,
+) -> None:
+    state = AppState()
+    resize_state = {"pending": False}
+    previous_handler = _install_resize_handler(resize_state)
+    fullscreen = mode is TerminalMode.FULLSCREEN
 
     try:
         with _reliable_terminal_size(), _raw_terminal(sys.stdin):
-            with Live(console=console, screen=True, auto_refresh=False, transient=True) as live:
-                # ÖNEMLİ: Live `auto_refresh=False` ile oluşturuldu (arka
-                # planda gereksiz bir yenileme thread'i açmamak için — bkz.
-                # modül docstring'i, "CPU'yu gereksiz tüketmeme" hedefi).
-                # Bu nedenle her `update()` çağrısında `refresh=True`
-                # AÇIKÇA geçirilmelidir; aksi halde Live'ın dahili tamponu
-                # güncellenir ama ekrana HİÇBİR ZAMAN gerçekten çizilmez
-                # (Rich'in `Live.update()` varsayılanı `refresh=False`'tur).
-                # Bu satırın unutulması "neredeyse boş ekran" sorununun
-                # doğrudan sebebiydi.
+            with Live(
+                console=console,
+                screen=fullscreen,
+                auto_refresh=False,
+                transient=fullscreen,
+                vertical_overflow="crop",
+            ) as live:
                 live.update(_render_full_page(state, config, db, console), refresh=True)
                 while not state.should_quit:
                     try:
                         key = _read_key()
-
                         needs_redraw = False
+
                         if resize_state["pending"]:
                             resize_state["pending"] = False
                             needs_redraw = True
@@ -334,16 +328,53 @@ def run_tui(config: Config, db: Database) -> None:
 
                         if needs_redraw:
                             live.update(_render_full_page(state, config, db, console), refresh=True)
-                    except Exception as exc:  # noqa: BLE001 - TUI çökmemeli
+                    except Exception as exc:  # noqa: BLE001 - TUI should survive view errors
                         log.exception("TUI döngüsünde beklenmeyen hata: %s", exc)
-                        state.status_message = "Beklenmeyen bir hata oluştu (log dosyasına kaydedildi)."
+                        state.status_message = (
+                            "Beklenmeyen bir hata oluştu (log dosyasına kaydedildi)."
+                        )
                         live.update(_render_full_page(state, config, db, console), refresh=True)
+    finally:
+        _restore_resize_handler(previous_handler)
+
+
+def run_tui(config: Config, db: Database, mode: str | TerminalMode = TerminalMode.AUTO) -> None:
+    """Start NetFather's terminal UI using a capability-aware safe mode."""
+    if not sys.platform.startswith("linux"):
+        print_error("NetFather TUI şu anda Linux gerektirir.")
+        return
+
+    capabilities = detect_terminal_capabilities(
+        sys.stdin,
+        sys.stdout,
+        requested_mode=mode,
+    )
+    if not capabilities.interactive:
+        print_error("NetFather TUI interaktif bir terminal gerektirir.")
+        print_info("Komut satırı kullanımı için: netfather --help")
+        return
+
+    if capabilities.reason:
+        log.info(
+            "Terminal compatibility mode: TERM=%s mode=%s reason=%s",
+            capabilities.term or "<unset>",
+            capabilities.mode.value,
+            capabilities.reason,
+        )
+
+    try:
+        # Console must be constructed AFTER stale COLUMNS/LINES are removed.
+        # Rich may cache those environment values during initialization.
+        with _reliable_terminal_size():
+            console = Console()
+            if capabilities.mode is TerminalMode.PLAIN:
+                _run_plain_tui(config, db, console)
+            else:
+                _run_live_tui(config, db, console, capabilities.mode)
     except KeyboardInterrupt:
-        # Terminal, _raw_terminal'in finally bloğu tarafından zaten restore edilir.
         pass
-    except Exception as exc:  # noqa: BLE001 - terminal setup da uygulamayı düşürmemeli
+    except Exception as exc:  # noqa: BLE001 - terminal setup must not crash CLI
         log.exception("TUI başlatılamadı: %s", exc)
         print_error("TUI başlatılamadı. Ayrıntılar log dosyasına kaydedildi.")
-    finally:
-        if has_sigwinch and previous_handler is not None:
-            signal.signal(signal.SIGWINCH, previous_handler)
+        if capabilities.mode is TerminalMode.FULLSCREEN:
+            print_info("Uyumluluk modu için deneyin: netfather tui --mode inline")
