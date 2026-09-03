@@ -77,11 +77,14 @@ def render_header(system_ok: bool | None) -> RenderableType:
     return Panel(grid, style="cyan", padding=(0, 1))
 
 
-def render_footer(status_message: str | None = None) -> RenderableType:
+def render_footer(status_message: str | None = None, compact: bool = False) -> RenderableType:
     """Alt klavye kısayolu çubuğunu oluşturur (varsa geçici bir durum mesajıyla)."""
     if status_message:
         return Panel(Text(status_message, justify="center", style="bold yellow"), padding=(0, 1))
-    hints = "↑↓ Navigate   Enter Select   r Refresh/Scan   s Sync known   q Quit"
+    if compact:
+        hints = "↑↓/j k Navigate  Enter Select  r Refresh  s Sync  q Quit"
+    else:
+        hints = "↑↓/j k Navigate   Enter Select   r Refresh/Scan   s Sync known   q Quit"
     return Panel(Text(hints, justify="center", style="dim"), padding=(0, 1))
 
 
@@ -90,7 +93,7 @@ def render_footer(status_message: str | None = None) -> RenderableType:
 # ---------------------------------------------------------------------------
 
 
-def render_overview_strip(data: OverviewData) -> RenderableType:
+def render_overview_strip(data: OverviewData, compact: bool = False) -> RenderableType:
     """
     Her zaman görünen, kompakt Overview özet şeridini oluşturur.
 
@@ -109,6 +112,17 @@ def render_overview_strip(data: OverviewData) -> RenderableType:
         str(data.registered_device_count) if data.registered_device_count is not None else UNKNOWN_TEXT
     )
     last_scan = _humanize_timedelta(data.last_scan_time)
+
+    if compact:
+        grid = Table.grid(padding=(0, 1), expand=True)
+        grid.add_column(style="dim")
+        grid.add_column(ratio=1)
+        grid.add_row("Network", interface)
+        grid.add_row("Local IP", local_ip)
+        grid.add_row("Gateway", gateway)
+        grid.add_row("Devices", device_count)
+        grid.add_row("Last Scan", last_scan)
+        return Panel(grid, title="OVERVIEW", title_align="left", padding=(0, 1))
 
     grid = Table.grid(padding=(0, 2), expand=True)
     grid.add_column(style="dim", ratio=1)
@@ -155,8 +169,16 @@ def render_overview_screen(data: OverviewData) -> RenderableType:
 # ---------------------------------------------------------------------------
 
 
-def render_navigation(state: AppState) -> RenderableType:
-    """Sol navigasyon panelini, seçili öğeyi vurgulayarak oluşturur."""
+def render_navigation(state: AppState, compact: bool = False) -> RenderableType:
+    """Navigasyon panelini, seçili öğeyi vurgulayarak oluşturur."""
+    if compact:
+        selected = NAV_ORDER[state.nav_index]
+        text = Text()
+        text.append(f"{state.nav_index + 1}/{len(NAV_ORDER)}  ", style="dim")
+        text.append(selected.value, style="bold cyan")
+        text.append("  •  Enter opens", style="dim")
+        return Panel(text, title="NAVIGATION", title_align="left", padding=(0, 1))
+
     lines: list[Text] = []
     for index, screen in enumerate(NAV_ORDER):
         is_selected = index == state.nav_index
@@ -360,6 +382,18 @@ def render_placeholder_screen(message: str) -> RenderableType:
     return Text(message, style=COLOR_UNKNOWN)
 
 
+def render_terminal_too_small(width: int, height: int) -> RenderableType:
+    """Render a useful message instead of a broken layout on tiny terminals."""
+    message = Text()
+    message.append("Terminal window is too small for the interactive layout.\n", style="bold yellow")
+    message.append(f"Current size: {width}x{height}. Resize to at least 44x14.\n\n", style="dim")
+    message.append("q", style="bold cyan")
+    message.append(" quit   ")
+    message.append("r", style="bold cyan")
+    message.append(" refresh")
+    return Panel(message, title="NETFATHER", border_style="cyan", padding=(1, 2))
+
+
 # ---------------------------------------------------------------------------
 # Tam sayfa düzeni
 # ---------------------------------------------------------------------------
@@ -411,6 +445,7 @@ def build_layout(
     navigation: RenderableType,
     active_view: RenderableType,
     footer: RenderableType,
+    compact: bool = False,
 ) -> Layout:
     """
     Tüm sayfayı doküman'daki yerleşime uygun şekilde birleştirir:
@@ -437,8 +472,20 @@ def build_layout(
         Layout(name="body"),
         Layout(footer, name="footer", size=footer_height, minimum_size=footer_height),
     )
-    layout["body"].split_row(
-        Layout(navigation, name="navigation", ratio=1, minimum_size=18),
-        Layout(active_view, name="active_view", ratio=3),
-    )
+    if compact:
+        navigation_height = _measure_renderable_height(navigation, console, width)
+        layout["body"].split_column(
+            Layout(
+                navigation,
+                name="navigation",
+                size=navigation_height,
+                minimum_size=navigation_height,
+            ),
+            Layout(active_view, name="active_view", ratio=1),
+        )
+    else:
+        layout["body"].split_row(
+            Layout(navigation, name="navigation", ratio=1, minimum_size=18),
+            Layout(active_view, name="active_view", ratio=3),
+        )
     return layout

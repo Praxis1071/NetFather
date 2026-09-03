@@ -110,12 +110,24 @@ def main_callback(
 
 
 @app.command()
-def tui() -> None:
-    """Interaktif tam ekran Terminal UI'yi açar."""
+def tui(
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        help="TUI modu: auto, fullscreen, inline veya plain.",
+        show_default=True,
+    ),
+) -> None:
+    """Interaktif Terminal UI'yi açar."""
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in {"auto", "fullscreen", "inline", "plain"}:
+        print_error("Geçersiz TUI modu. Geçerli değerler: auto, fullscreen, inline, plain.")
+        raise typer.Exit(code=2)
+
     config, db = _bootstrap()
     from tui.app import run_tui
 
-    run_tui(config, db)
+    run_tui(config, db, mode=normalized_mode)
 
 
 @app.command()
