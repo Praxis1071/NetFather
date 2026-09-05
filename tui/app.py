@@ -13,6 +13,7 @@ import contextlib
 import os
 import signal
 import sys
+import time
 from typing import IO, Iterator
 
 from rich.console import Console
@@ -22,12 +23,17 @@ from cli.output import print_error, print_info
 from core.config import Config
 from core.database import Database
 from core.logger import get_logger
+from manager.device_manager import DeviceManager
 from tui.data import (
     get_config_display_rows,
     get_discovery_data,
     get_network_data,
     get_profiles,
     get_rules,
+    get_topology,
+    get_monitoring,
+    get_events,
+    get_policies,
     get_overview_data,
     get_recent_log_lines,
     get_registered_devices,
@@ -48,6 +54,9 @@ from tui.render import (
     render_network_screen,
     render_profiles_screen,
     render_rules_screen,
+    render_topology_screen,
+    render_monitoring_screen,
+    render_events_screen,
     render_overview_screen,
     render_overview_strip,
     render_placeholder_screen,
@@ -141,7 +150,12 @@ def _build_active_view_content(state: AppState, config: Config, db: Database, ov
 
     if state.current_screen == Screen.DEVICES:
         devices, error = get_registered_devices(db)
-        return render_devices_screen(devices, error, get_discovery_data(state))
+        policies, _ = get_policies(db)
+        return render_devices_screen(devices, error, get_discovery_data(state), policies)
+
+    if state.current_screen == Screen.TOPOLOGY:
+        topology, error = get_topology(db)
+        return render_topology_screen(topology, error)
 
     if state.current_screen == Screen.PROFILES:
         profiles, error = get_profiles(db)
@@ -159,7 +173,12 @@ def _build_active_view_content(state: AppState, config: Config, db: Database, ov
         return render_logs_screen(lines, message)
 
     if state.current_screen == Screen.MONITOR:
-        return render_placeholder_screen("Monitor functionality is planned for a future phase.")
+        snapshot, error = get_monitoring(db)
+        return render_monitoring_screen(snapshot, error)
+
+    if state.current_screen == Screen.EVENTS:
+        events, error = get_events(db)
+        return render_events_screen(events, error)
 
     # Buraya normalde ulaşılmaz (tüm Screen değerleri yukarıda ele alındı).
     return render_placeholder_screen("Unknown screen.")
@@ -216,7 +235,16 @@ def _handle_key(key: str, state: AppState, config: Config, db: Database | None =
                 state.status_message = error
             else:
                 record_scan_result(state, hosts)
-                state.status_message = f"{len(hosts)} host bulundu."
+                if db is not None:
+                    new_count, updated, offline = DeviceManager(db).reconcile_discovery(
+                        hosts, auto_register=config.discovery.auto_register,
+                        offline_after_seconds=config.discovery.offline_after_seconds,
+                    )
+                    state.status_message = (
+                        f"{len(hosts)} host; {new_count} yeni, {updated} güncel, {offline} offline."
+                    )
+                else:
+                    state.status_message = f"{len(hosts)} host bulundu."
     elif key == "SYNC":
         if db is None:
             state.status_message = "Database hazır değil."
@@ -315,10 +343,25 @@ def _run_live_tui(
             ) as live:
                 live.update(_render_full_page(state, config, db, console), refresh=True)
                 last_size = console.size
+                last_presence_poll = time.monotonic()
                 while not state.should_quit:
                     try:
                         key = _read_key()
                         needs_redraw = False
+
+                        # Passive live-presence polling keeps Topology/Devices/Events current
+                        # without repeatedly performing privileged active scans.
+                        now_monotonic = time.monotonic()
+                        if now_monotonic - last_presence_poll >= config.discovery.interval_seconds:
+                            last_presence_poll = now_monotonic
+                            try:
+                                from monitor.tracker import DeviceTracker
+                                tracked = DeviceTracker(db, config).poll_once(active=False)
+                                if tracked.hosts:
+                                    record_scan_result(state, list(tracked.hosts))
+                                needs_redraw = True
+                            except Exception as exc:
+                                log.debug("Live presence poll başarısız: %s", exc)
 
                         # SIGWINCH handles POSIX resize immediately.  Windows
                         # has no SIGWINCH, so also poll Rich's terminal size

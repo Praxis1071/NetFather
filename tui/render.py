@@ -22,6 +22,7 @@ from rich.layout import Layout
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 
 from network.discovery import DiscoveredHost
 from network.interface import NetworkStatus
@@ -223,12 +224,15 @@ def render_network_screen(status: NetworkStatus) -> RenderableType:
 def _hosts_table(hosts: list[DiscoveredHost]) -> Table:
     table = Table(expand=True)
     table.add_column("IP", overflow="fold")
-    table.add_column("Interface")
     table.add_column("MAC", overflow="fold")
+    table.add_column("Hostname")
+    table.add_column("Type")
     table.add_column("State")
     table.add_column("Vendor")
+    table.add_column("OS")
     for host in hosts:
-        table.add_row(host.ip, host.interface or "-", host.mac or "-", host.state or "-", host.vendor or "-")
+        table.add_row(host.ip, host.mac or "-", host.hostname or "-", host.device_type or "unknown",
+                      host.state or "-", host.vendor or "-", host.os_hint or "-")
     return table
 
 
@@ -259,7 +263,7 @@ def render_discovery_screen(data: DiscoveryData) -> RenderableType:
 
 
 def render_devices_screen(
-    registered_devices: list, registered_error: str | None, discovery: DiscoveryData
+    registered_devices: list, registered_error: str | None, discovery: DiscoveryData, policies: dict | None = None
 ) -> RenderableType:
     """
     Devices ekranı: kayıtlı cihazlar (DB) ve son keşfedilenler (discovery)
@@ -271,16 +275,22 @@ def render_devices_screen(
     registered_table.add_column("IP")
     registered_table.add_column("Vendor")
     registered_table.add_column("Type")
+    registered_table.add_column("Status")
+    registered_table.add_column("Access")
     registered_table.add_column("Last Seen")
 
     if registered_error:
-        registered_table.add_row(Text(f"Error: {registered_error}", style=COLOR_ERROR), "", "", "", "", "")
+        registered_table.add_row(Text(f"Error: {registered_error}", style=COLOR_ERROR), "", "", "", "", "", "", "")
     elif not registered_devices:
-        registered_table.add_row(Text("No registered devices.", style=COLOR_UNKNOWN), "", "", "", "", "")
+        registered_table.add_row(Text("No registered devices.", style=COLOR_UNKNOWN), "", "", "", "", "", "", "")
     else:
         for device in registered_devices:
             last_seen = device.last_seen.strftime("%Y-%m-%d %H:%M") if device.last_seen else "-"
-            registered_table.add_row(device.name, device.mac, device.ip or "-", device.vendor or "-", device.device_type, last_seen)
+            policy = (policies or {}).get(device.mac)
+            registered_table.add_row(device.name, device.mac, device.ip or "-", device.vendor or "-", device.device_type,
+                                     Text("ONLINE", style=COLOR_OK) if getattr(device, "online", False) else Text("OFFLINE", style=COLOR_UNKNOWN),
+                                     Text("ALLOW", style=COLOR_OK) if not policy or policy.allowed else Text("BLOCK", style=COLOR_ERROR),
+                                     last_seen)
 
     discovered_table: RenderableType
     if discovery.last_scan_error:
@@ -292,7 +302,7 @@ def render_devices_screen(
 
     return Group(
         registered_table,
-        Panel(discovered_table, title="Recently Discovered (not saved)", title_align="left"),
+        Panel(discovered_table, title="Latest Discovery", title_align="left"),
     )
 
 
@@ -361,6 +371,45 @@ def render_rules_screen(rules: list, error: str | None) -> RenderableType:
             )
     return Group(table, Text("\nManage with: netfather rules --help", style=COLOR_UNKNOWN))
 
+
+def render_topology_screen(topology, error: str | None) -> RenderableType:
+    if error or topology is None:
+        return Text(error or "Topology unavailable", style=COLOR_ERROR)
+    router = next((n for n in topology.nodes if n.kind == "router"), None)
+    root = Tree(f"[bold cyan]Router[/bold cyan]  {router.ip if router and router.ip else '-'}")
+    for node in topology.nodes:
+        if node.kind == "router": continue
+        status = "[green]●[/green]" if node.online else "[dim]○[/dim]"
+        access = "[green]ALLOW[/green]" if node.allowed else "[red]BLOCK[/red]"
+        root.add(f"{status} {node.label}  {node.ip or '-'}  {access}  [dim]{node.kind}[/dim]")
+    return Group(root, Text("\nLive presence is refreshed from the neighbour cache.", style=COLOR_UNKNOWN))
+
+def _human_bytes(value: int) -> str:
+    size = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB": return f"{size:.1f} {unit}"
+        size /= 1024
+    return str(value)
+
+def render_monitoring_screen(snapshot, error: str | None) -> RenderableType:
+    if error or snapshot is None: return Text(error or "Monitoring unavailable", style=COLOR_ERROR)
+    table = Table(expand=True)
+    table.add_column("Interface"); table.add_column("TX"); table.add_column("RX")
+    table.add_column("Packets TX/RX"); table.add_column("Policy A/B"); table.add_column("Errors"); table.add_column("Drops")
+    table.add_row(snapshot.interface or "-", _human_bytes(snapshot.bytes_sent), _human_bytes(snapshot.bytes_recv),
+                  f"{snapshot.packets_sent} / {snapshot.packets_recv}", f"{snapshot.allowed_devices} / {snapshot.blocked_devices}",
+                  f"{snapshot.errors_out} / {snapshot.errors_in}", f"{snapshot.drops_out} / {snapshot.drops_in}")
+    return Group(table, Text("\nCounters are OS interface totals; per-device packet accounting requires capture privileges.", style=COLOR_UNKNOWN))
+
+def render_events_screen(events: list, error: str | None) -> RenderableType:
+    table = Table(expand=True)
+    table.add_column("Time"); table.add_column("Type"); table.add_column("Device"); table.add_column("Severity"); table.add_column("Description")
+    if error: table.add_row("-", "error", "-", "error", Text(error, style=COLOR_ERROR))
+    elif not events: table.add_row("-", "-", "-", "-", Text("No audit events yet.", style=COLOR_UNKNOWN))
+    else:
+        for event in events:
+            table.add_row(event.timestamp.strftime("%H:%M:%S"), event.event_type, event.device_mac or "-", event.severity, event.description)
+    return table
 
 def render_configuration_screen(rows: list[tuple[str, str]]) -> RenderableType:
     table = Table.grid(padding=(0, 2))

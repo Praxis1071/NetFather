@@ -43,9 +43,11 @@ def test_nav_order_contains_all_required_screens_in_expected_order() -> None:
         Screen.DEVICES,
         Screen.NETWORK,
         Screen.DISCOVERY,
+        Screen.TOPOLOGY,
         Screen.PROFILES,
         Screen.RULES,
         Screen.MONITOR,
+        Screen.EVENTS,
         Screen.CONFIGURATION,
         Screen.LOGS,
     ]

@@ -2,3 +2,6 @@
 pytest>=8.0,<10.0
 build>=1.2,<2.0
 pyinstaller>=6.22,<7.0
+
+psutil>=5.9,<8
+scapy>=2.6,<3

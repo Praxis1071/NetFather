@@ -1,15 +1,9 @@
-"""Cross-platform passive local-network discovery.
+"""Cross-platform local-network discovery.
 
-The module reads the host operating system's neighbor/ARP cache; it does not
-send active probes and never persists unknown devices automatically.
-
-Backends:
-- Linux: ``ip neigh``
-- Windows: PowerShell ``Get-NetNeighbor`` with ``arp -a`` fallback
-- macOS: ``arp -an``
-
-All backends normalize into :class:`DiscoveredHost` and optionally enrich MAC
-addresses using NetFather's local-only OUI lookup.
+NetFather combines the operating system neighbour/ARP cache (passive) with an
+optional Scapy ARP sweep (active).  Active discovery is limited to the local
+IPv4 subnet and falls back to passive discovery when Scapy, capture drivers or
+privileges are unavailable.
 """
 
 from __future__ import annotations
@@ -18,15 +12,16 @@ import ipaddress
 import json
 import re
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass
 
 from core.logger import get_logger
 from core.platform import PlatformFamily, platform_family
 from network.device import lookup_vendor
+from network.interface import get_network_status
 
 log = get_logger("network.discovery")
-
 _COMMAND_TIMEOUT_SECONDS_DEFAULT = 5
 
 
@@ -45,13 +40,17 @@ def _is_meaningless_address(ip_text: str) -> bool:
 
 @dataclass
 class DiscoveredHost:
-    """Normalized passive neighbor-cache record."""
+    """Normalized discovery record from either active or passive backends."""
 
     ip: str
     interface: str | None = None
     mac: str | None = None
     state: str | None = None
     vendor: str | None = None
+    hostname: str | None = None
+    device_type: str | None = None
+    os_hint: str | None = None
+    source: str = "passive"
 
 
 def _normalize_discovery_mac(mac: str) -> str:
@@ -69,17 +68,89 @@ def _valid_mac_or_none(value: object) -> str | None:
 
 
 def _dedupe(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
+    """Deduplicate exact IP/interface rows; the newest row wins.
+
+    This preserves passive neighbour-cache semantics: the same IP observed on
+    two interfaces is two records, while a later state for the same
+    IP/interface replaces the earlier one.
+    """
     by_identity: dict[tuple[str, str | None], DiscoveredHost] = {}
     for host in hosts:
         by_identity[(host.ip, host.interface)] = host
     return list(by_identity.values())
 
 
-def _enrich_vendors(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
+def _merge_discovery(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
+    """Merge active/passive observations by MAC when that is unambiguous."""
+    result: list[DiscoveredHost] = []
+    mac_index: dict[str, int] = {}
+    identity_index: dict[tuple[str, str | None], int] = {}
+    for host in hosts:
+        index: int | None = None
+        if host.mac:
+            index = mac_index.get(host.mac.lower())
+        if index is None:
+            index = identity_index.get((host.ip, host.interface))
+        if index is None:
+            result.append(host)
+            index = len(result) - 1
+            if host.mac:
+                mac_index[host.mac.lower()] = index
+            identity_index[(host.ip, host.interface)] = index
+            continue
+        current = result[index]
+        for attr in ("interface", "mac", "state", "vendor", "hostname", "device_type", "os_hint"):
+            value = getattr(host, attr)
+            if value and (not getattr(current, attr) or host.source == "active"):
+                setattr(current, attr, value)
+        if host.source == "active" and current.source == "passive":
+            current.source = "active+passive"
+    return result
+
+
+def _enrich_vendors(hosts: list[DiscoveredHost], enabled: bool = True) -> list[DiscoveredHost]:
+    if not enabled:
+        return hosts
     for host in hosts:
         if host.mac and not host.vendor:
             host.vendor = lookup_vendor(host.mac)
     return hosts
+
+
+def _resolve_hostname(ip: str) -> str | None:
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except (OSError, socket.herror, socket.gaierror):
+        return None
+
+
+def _guess_device_type(host: DiscoveredHost) -> str:
+    text = " ".join(filter(None, (host.hostname, host.vendor))).lower()
+    if any(x in text for x in ("iphone", "android", "pixel", "samsung", "xiaomi", "huawei")):
+        return "phone"
+    if any(x in text for x in ("ipad", "tablet")):
+        return "tablet"
+    if any(x in text for x in ("printer", "epson", "brother", "canon")):
+        return "printer"
+    if any(x in text for x in ("router", "gateway", "mikrotik", "ubiquiti", "tp-link", "cisco")):
+        return "router"
+    if any(x in text for x in ("tv", "roku", "chromecast", "appletv")):
+        return "media"
+    if any(x in text for x in ("camera", "esp", "tuya", "sonoff", "iot")):
+        return "iot"
+    if host.hostname:
+        return "computer"
+    return "unknown"
+
+
+def _guess_os_from_ttl(ttl: int | None) -> str | None:
+    if ttl is None:
+        return None
+    if ttl <= 64:
+        return "Unix/Linux/macOS-like"
+    if ttl <= 128:
+        return "Windows-like"
+    return "network/embedded"
 
 
 def _run_process(args: list[str], timeout_seconds: int) -> str | None:
@@ -116,18 +187,15 @@ def _parse_neigh_line(line: str) -> DiscoveredHost | None:
     tokens = line.split()
     if len(tokens) < 3 or tokens[1] != "dev":
         return None
-
     ip_text = tokens[0]
     interface = tokens[2]
     if _is_meaningless_address(ip_text):
         return None
-
     remaining = tokens[3:]
     mac: str | None = None
     if len(remaining) >= 2 and remaining[0] == "lladdr":
         mac = _valid_mac_or_none(remaining[1])
         remaining = remaining[2:]
-
     state = remaining[-1] if remaining else None
     return DiscoveredHost(ip=ip_text, interface=interface, mac=mac, state=state)
 
@@ -208,6 +276,7 @@ def _parse_windows_neighbors_json(raw_output: str) -> list[DiscoveredHost]:
             )
         )
     return _dedupe(hosts)
+
 
 _WINDOWS_ARP_INTERFACE_RE = re.compile(r"^\s*Interface:\s+(?P<interface>\S+)", re.I)
 _WINDOWS_ARP_ROW_RE = re.compile(
@@ -300,6 +369,110 @@ def _scan_macos(timeout_seconds: int) -> list[DiscoveredHost]:
 
 
 # ---------------------------------------------------------------------------
+# Active discovery: Scapy ARP + optional ICMP TTL hint
+# ---------------------------------------------------------------------------
+
+
+def infer_local_subnet(platform_name: str | None = None) -> str | None:
+    status = get_network_status(platform_name)
+    if not status.local_ip:
+        return None
+    prefix = status.prefix_length
+    if prefix is None and status.netmask:
+        try:
+            prefix = ipaddress.ip_network(f"0.0.0.0/{status.netmask}").prefixlen
+        except ValueError:
+            prefix = None
+    # A conservative /24 fallback keeps active probing inside the common LAN
+    # segment rather than scanning a huge guessed network.
+    prefix = 24 if prefix is None else max(16, min(30, int(prefix)))
+    try:
+        return str(ipaddress.ip_network(f"{status.local_ip}/{prefix}", strict=False))
+    except ValueError:
+        return None
+
+
+def _scan_scapy(subnet: str, timeout_seconds: int) -> list[DiscoveredHost]:
+    try:
+        from scapy.all import ARP, Ether, srp  # type: ignore[import-not-found]
+    except ImportError:
+        log.info("Scapy kurulu değil; active discovery passive metoda düşüyor.")
+        return []
+    try:
+        network = ipaddress.ip_network(subnet, strict=False)
+        if network.version != 4:
+            return []
+        # Refuse unexpectedly broad ranges even if a config file is edited by
+        # hand. Local active discovery should stay local and bounded.
+        if network.prefixlen < 16:
+            log.warning("Active discovery subnet çok geniş, tarama reddedildi: %s", subnet)
+            return []
+        answered, _ = srp(
+            Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=str(network)),
+            timeout=max(1, timeout_seconds),
+            inter=0.01,
+            retry=0,
+            verbose=False,
+        )
+    except (OSError, PermissionError, RuntimeError, ValueError) as exc:
+        log.info("Scapy active discovery kullanılamadı: %s", exc)
+        return []
+    except Exception as exc:  # Scapy/Npcap backend failures vary by OS
+        log.info("Scapy active discovery başarısız, passive fallback kullanılacak: %s", exc)
+        return []
+
+    hosts: list[DiscoveredHost] = []
+    for _sent, received in answered:
+        ip_text = str(getattr(received, "psrc", "") or "")
+        mac = _valid_mac_or_none(str(getattr(received, "hwsrc", "") or ""))
+        if ip_text and not _is_meaningless_address(ip_text):
+            hosts.append(
+                DiscoveredHost(ip=ip_text, mac=mac, state="REACHABLE", source="active")
+            )
+    return _dedupe(hosts)
+
+
+def _probe_os_hint(ip: str, timeout: float = 0.35) -> str | None:
+    try:
+        from scapy.all import ICMP, IP, sr1  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    try:
+        response = sr1(IP(dst=ip) / ICMP(), timeout=timeout, verbose=False)
+    except Exception:
+        return None
+    ttl = int(response.ttl) if response is not None and hasattr(response, "ttl") else None
+    return _guess_os_from_ttl(ttl)
+
+
+def _enrich_host_metadata(
+    hosts: list[DiscoveredHost],
+    *,
+    hostname_resolution: bool,
+    os_detection: bool,
+) -> list[DiscoveredHost]:
+    for index, host in enumerate(hosts):
+        if hostname_resolution and not host.hostname:
+            host.hostname = _resolve_hostname(host.ip)
+        if os_detection and not host.os_hint and index < 64:
+            host.os_hint = _probe_os_hint(host.ip)
+        if not host.device_type:
+            host.device_type = _guess_device_type(host)
+    return hosts
+
+
+def _scan_passive(timeout_seconds: int, family: PlatformFamily) -> list[DiscoveredHost]:
+    if family is PlatformFamily.LINUX:
+        return _scan_linux(timeout_seconds)
+    if family is PlatformFamily.WINDOWS:
+        return _scan_windows(timeout_seconds)
+    if family is PlatformFamily.MACOS:
+        return _scan_macos(timeout_seconds)
+    raw = _run_arp_a(timeout_seconds)
+    return _parse_windows_arp_output(raw) if raw else []
+
+
+# ---------------------------------------------------------------------------
 # Public facade
 # ---------------------------------------------------------------------------
 
@@ -307,20 +480,37 @@ def _scan_macos(timeout_seconds: int) -> list[DiscoveredHost]:
 def scan_network(
     timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT,
     platform_name: str | None = None,
+    *,
+    mode: str = "passive",
+    subnet: str | None = None,
+    hostname_resolution: bool = False,
+    vendor_detection: bool = True,
+    os_detection: bool = False,
+    active_timeout_seconds: int | None = None,
 ) -> list[DiscoveredHost]:
-    """Read the local neighbor cache for the current operating system."""
+    """Discover local IPv4 hosts using passive, active, or hybrid mode."""
     family = platform_family(platform_name)
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in {"passive", "active", "hybrid"}:
+        normalized_mode = "passive"
     try:
-        if family is PlatformFamily.LINUX:
-            hosts = _scan_linux(timeout_seconds)
-        elif family is PlatformFamily.WINDOWS:
-            hosts = _scan_windows(timeout_seconds)
-        elif family is PlatformFamily.MACOS:
-            hosts = _scan_macos(timeout_seconds)
-        else:
-            raw = _run_arp_a(timeout_seconds)
-            hosts = _parse_windows_arp_output(raw) if raw else []
-        return _enrich_vendors(hosts)
-    except Exception as exc:  # noqa: BLE001 - discovery must not crash CLI/TUI
+        passive = (
+            _scan_passive(timeout_seconds, family)
+            if normalized_mode in {"passive", "hybrid"}
+            else []
+        )
+        active: list[DiscoveredHost] = []
+        if normalized_mode in {"active", "hybrid"}:
+            cidr = subnet or infer_local_subnet(platform_name)
+            if cidr:
+                active = _scan_scapy(cidr, active_timeout_seconds or min(timeout_seconds, 5))
+        hosts = _merge_discovery(passive + active)
+        hosts = _enrich_vendors(hosts, vendor_detection)
+        return _enrich_host_metadata(
+            hosts,
+            hostname_resolution=hostname_resolution,
+            os_detection=os_detection,
+        )
+    except Exception as exc:  # discovery must not crash CLI/TUI
         log.warning("Discovery failed for %s: %s", family.value, exc)
         return []

@@ -150,7 +150,7 @@ def get_network_data(state: AppState) -> NetworkStatus:
 class DiscoveryData:
     """Discovery ekranının gösterdiği durum ve son tarama sonucu."""
 
-    backend: str = "ip neigh (basic)"
+    backend: str = "passive + Scapy active (hybrid capable)"
     last_scan_time: dt.datetime | None = None
     last_scan_error: str | None = None
     hosts: list[DiscoveredHost] = field(default_factory=list)
@@ -186,7 +186,15 @@ def trigger_scan(config: Config) -> tuple[list[DiscoveredHost], str | None]:
         olursa (beklenmez) yine de burada yakalanır ki TUI çökmesin.
     """
     try:
-        hosts = scan_network(timeout_seconds=config.network.scan_timeout_seconds)
+        hosts = scan_network(
+            timeout_seconds=config.network.scan_timeout_seconds,
+            mode=config.discovery.mode,
+            subnet=config.discovery.subnet or None,
+            hostname_resolution=config.discovery.hostname_resolution,
+            vendor_detection=config.discovery.vendor_detection,
+            os_detection=config.discovery.os_detection,
+            active_timeout_seconds=config.discovery.active_timeout_seconds,
+        )
     except Exception as exc:  # noqa: BLE001 - TUI'nin çökmemesi için son güvenlik ağı
         log.exception("TUI taraması sırasında beklenmeyen hata: %s", exc)
         return [], "Tarama sırasında beklenmeyen bir hata oluştu."
@@ -241,7 +249,15 @@ def get_config_display_rows(config: Config) -> list[tuple[str, str]]:
         ("Log seviyesi", config.logging.level),
         ("Scan timeout (saniye)", str(config.network.scan_timeout_seconds)),
         ("Varsayılan arayüz", config.network.default_interface or "(otomatik tespit)"),
+        ("Discovery mode", config.discovery.mode),
+        ("Discovery interval", f"{config.discovery.interval_seconds}s"),
+        ("Auto register", "yes" if config.discovery.auto_register else "no"),
+        ("Hostname detection", "yes" if config.discovery.hostname_resolution else "no"),
+        ("OS detection", "yes" if config.discovery.os_detection else "no"),
+        ("Firewall backend", config.firewall.backend),
+        ("Firewall enforcement", "enabled" if config.firewall.enforcement_enabled else "disabled (dry-run)"),
         ("Monitor refresh (saniye)", str(config.monitor.refresh_seconds)),
+        ("Daemon interval", f"{config.daemon.interval_seconds}s"),
     ]
 
 
@@ -312,3 +328,32 @@ def sync_known_discovered(db: Database, state: AppState) -> tuple[int, str | Non
     except NetFatherError as exc:
         log.warning("Discovery sync başarısız: %s", exc)
         return 0, str(exc)
+
+
+def get_topology(db: Database):
+    from network.topology import build_topology
+    try:
+        return build_topology(db), None
+    except Exception as exc:
+        log.warning("Topology oluşturulamadı: %s", exc); return None, str(exc)
+
+def get_monitoring(db: Database):
+    from monitor.monitor import Monitor
+    try:
+        return Monitor(db).snapshot(), None
+    except Exception as exc:
+        log.warning("Monitoring snapshot alınamadı: %s", exc); return None, str(exc)
+
+def get_events(db: Database, limit: int = 30):
+    from manager.event_manager import EventManager
+    try:
+        return EventManager(db).list_events(limit=limit), None
+    except Exception as exc:
+        log.warning("Events okunamadı: %s", exc); return [], str(exc)
+
+def get_policies(db: Database):
+    from manager.policy_engine import PolicyEngine
+    try:
+        return {p.mac: p for p in PolicyEngine(db).evaluate_all()}, None
+    except Exception as exc:
+        return {}, str(exc)

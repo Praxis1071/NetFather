@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -79,6 +79,7 @@ class Database:
         """
         try:
             Base.metadata.create_all(self.engine)
+            self._apply_compatible_migrations()
         except SQLAlchemyError as exc:
             raise DatabaseError(
                 f"Database şeması oluşturulamadı ({self.db_path}): {exc}"
@@ -90,6 +91,39 @@ class Database:
             else:
                 log.info("Mevcut database yüklendi: %s", self.db_path)
         self._initialized = True
+
+
+    def _apply_compatible_migrations(self) -> None:
+        """Add v0.4-compatible columns without invalidating existing SQLite DBs.
+
+        NetFather does not yet ship a heavyweight migration framework. These
+        additions are deliberately additive and idempotent so databases from
+        earlier 0.x releases continue to open safely.
+        """
+        migrations = {
+            "devices": {
+                "hostname": "VARCHAR(255)",
+                "os_hint": "VARCHAR(64)",
+                "online": "BOOLEAN NOT NULL DEFAULT 0",
+                "auto_registered": "BOOLEAN NOT NULL DEFAULT 0",
+            },
+            "events": {
+                "device_mac": "VARCHAR(17)",
+                "severity": "VARCHAR(16) NOT NULL DEFAULT 'info'",
+                "metadata_json": "TEXT",
+            },
+        }
+        with self.engine.begin() as connection:
+            for table, columns in migrations.items():
+                existing = {
+                    row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")
+                }
+                for column, ddl in columns.items():
+                    if column not in existing:
+                        connection.exec_driver_sql(
+                            f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"
+                        )
+                        log.info("Database migration: %s.%s eklendi", table, column)
 
     @contextmanager
     def session(self) -> Iterator[Session]:

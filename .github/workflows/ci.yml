@@ -43,3 +43,19 @@ jobs:
           python netfather.py --version
           python netfather.py platform
           python netfather.py doctor
+
+  linux-firewall-integration:
+    name: Linux network namespace / nftables integration
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install OS integration tools
+        run: sudo apt-get update && sudo apt-get install -y nftables iproute2 iputils-ping
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt "pytest>=8,<10"
+      - name: Run isolated firewall integration test
+        run: sudo -E "$(command -v python)" -m pytest -q tests/integration/test_firewall_netns.py

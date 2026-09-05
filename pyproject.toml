@@ -12,6 +12,8 @@ dependencies = [
     "typer>=0.12,<1.0",
     "rich>=13.7,<16.0",
     "SQLAlchemy>=2.0,<2.1",
+    "psutil>=5.9,<8",
+    "scapy>=2.6,<3",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -36,7 +38,7 @@ netfather = "cli.main:run"
 
 [tool.setuptools]
 include-package-data = false
-packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler", "tui"]
+packages = ["core", "cli", "network", "models", "manager", "monitor", "scheduler", "tui", "firewall"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

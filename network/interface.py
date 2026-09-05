@@ -38,6 +38,7 @@ class NetworkStatus:
     local_ip: str | None = None
     gateway: str | None = None
     netmask: str | None = None
+    prefix_length: int | None = None
 
 
 def _run_process(args: list[str], timeout: int = _COMMAND_TIMEOUT_SECONDS) -> str | None:
@@ -103,9 +104,24 @@ def _parse_route_get_output(raw_output: str) -> NetworkStatus:
     )
 
 
+def _run_linux_addr(interface: str) -> str | None:
+    ip_binary = shutil.which("ip")
+    if ip_binary is None:
+        return None
+    return _run_process([ip_binary, "-o", "-4", "addr", "show", "dev", interface])
+
+
 def _linux_network_status() -> NetworkStatus:
     raw = _run_ip_route_get()
-    return _parse_route_get_output(raw) if raw else NetworkStatus()
+    status = _parse_route_get_output(raw) if raw else NetworkStatus()
+    if status.interface:
+        addr = _run_linux_addr(status.interface)
+        if addr:
+            match = re.search(r"\binet\s+(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})", addr)
+            if match:
+                status.local_ip = status.local_ip or match.group(1)
+                status.prefix_length = int(match.group(2))
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +139,7 @@ if ($null -ne $c) {
         Interface = $c.InterfaceAlias
         IP = @($c.IPv4Address)[0].IPAddress
         Gateway = @($c.IPv4DefaultGateway)[0].NextHop
+        PrefixLength = @($c.IPv4Address)[0].PrefixLength
     } | ConvertTo-Json -Compress
 }
 """.strip()
@@ -148,10 +165,16 @@ def _parse_windows_network_json(raw_output: str) -> NetworkStatus:
         payload = payload[0] if payload else {}
     if not isinstance(payload, dict):
         return NetworkStatus()
+    prefix = payload.get("PrefixLength")
+    try:
+        prefix_value = int(prefix) if prefix is not None else None
+    except (TypeError, ValueError):
+        prefix_value = None
     return NetworkStatus(
         interface=str(payload.get("Interface") or "") or None,
         local_ip=str(payload.get("IP") or "") or None,
         gateway=str(payload.get("Gateway") or "") or None,
+        prefix_length=prefix_value,
     )
 
 
@@ -184,11 +207,24 @@ def _run_macos_ipconfig(interface: str) -> str | None:
     return raw.strip() if raw and raw.strip() else None
 
 
+def _run_macos_netmask(interface: str) -> str | None:
+    ipconfig = shutil.which("ipconfig") or "/usr/sbin/ipconfig"
+    raw = _run_process([ipconfig, "getoption", interface, "subnet_mask"])
+    return raw.strip() if raw and raw.strip() else None
+
+
 def _macos_network_status() -> NetworkStatus:
     raw = _run_macos_route_get()
     status = _parse_macos_route_get_output(raw) if raw else NetworkStatus()
     if status.interface:
         status.local_ip = _run_macos_ipconfig(status.interface)
+        status.netmask = _run_macos_netmask(status.interface)
+        if status.netmask:
+            try:
+                import ipaddress
+                status.prefix_length = ipaddress.ip_network(f"0.0.0.0/{status.netmask}").prefixlen
+            except ValueError:
+                pass
     if status.local_ip is None:
         status.local_ip = _socket_local_ip()
     return status

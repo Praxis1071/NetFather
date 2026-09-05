@@ -14,6 +14,8 @@ from core.exceptions import (
 from core.logger import get_logger
 from manager.device_manager import DeviceManager
 from models.profile import Profile
+from models.event import Event
+from models.device import Device
 
 log = get_logger("profile_manager")
 
@@ -62,6 +64,7 @@ class ProfileManager:
 
             profile = Profile(device_id=device.id, name=profile_name, internet_mode=mode)
             session.add(profile)
+            session.add(Event(event_type="profile_created", description=f"Profile {profile_name} ({mode}) created for {device.name}", device_mac=device.mac))
             session.flush()
             session.refresh(profile)
             # Attach the already-loaded device before expunging so callers can
@@ -99,6 +102,8 @@ class ProfileManager:
             if profile is None:
                 raise ProfileNotFoundError(f"Profil bulunamadı: id={profile_id}")
             profile.internet_mode = mode
+            device = session.get(Device, profile.device_id)
+            session.add(Event(event_type="profile_changed", description=f"Profile {profile_id} mode -> {mode}", device_mac=device.mac if device else None))
             session.flush()
             session.refresh(profile)
             session.expunge(profile)
@@ -110,5 +115,7 @@ class ProfileManager:
             profile = session.get(Profile, profile_id)
             if profile is None:
                 raise ProfileNotFoundError(f"Profil bulunamadı: id={profile_id}")
+            device = session.get(Device, profile.device_id)
+            session.add(Event(event_type="profile_deleted", description=f"Profile {profile_id} deleted", device_mac=device.mac if device else None))
             session.delete(profile)
             log.info("Profil silindi: id=%s", profile_id)

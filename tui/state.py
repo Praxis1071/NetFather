@@ -23,10 +23,12 @@ class Screen(str, Enum):
     DEVICES = "Devices"
     NETWORK = "Network"
     DISCOVERY = "Discovery"
+    TOPOLOGY = "Topology"
     PROFILES = "Profiles"
     RULES = "Rules"
-    MONITOR = "Monitor"
-    CONFIGURATION = "Configuration"
+    MONITOR = "Monitoring"
+    EVENTS = "Events"
+    CONFIGURATION = "Settings"
     LOGS = "Logs"
 
 

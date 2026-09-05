@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from core.database import Database
 from core.platform import PlatformFamily, get_platform_info
 from network.device import find_oui_database
 from network.interface import get_network_status
+from firewall.backends import get_firewall_backend
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,34 @@ def _network_tools_check() -> DiagnosticCheck:
     return DiagnosticCheck("Network backend", None, "unsupported OS; socket fallback only")
 
 
+
+
+def _active_discovery_check() -> DiagnosticCheck:
+    scapy = importlib.util.find_spec("scapy") is not None
+    return DiagnosticCheck(
+        "Active discovery", True if scapy else None,
+        "Scapy available" if scapy else "Scapy unavailable; passive discovery remains usable",
+    )
+
+def _firewall_check(config: Config) -> DiagnosticCheck:
+    backend = get_firewall_backend(config.firewall.backend)
+    if backend.name == "nftables":
+        tool = shutil.which("nft")
+    elif backend.name == "windows":
+        tool = shutil.which("powershell.exe") or shutil.which("pwsh")
+    elif backend.name == "pf":
+        tool = shutil.which("pfctl") or ("/sbin/pfctl" if Path("/sbin/pfctl").exists() else None)
+    else:
+        tool = None
+    if tool:
+        ok = True
+    elif backend.name == "none" or not config.firewall.enforcement_enabled:
+        ok = None
+    else:
+        ok = False
+    mode = "enabled" if config.firewall.enforcement_enabled else "dry-run by default"
+    return DiagnosticCheck("Firewall backend", ok, f"{backend.name}: {tool or 'tool unavailable'}; {mode}")
+
 def run_diagnostics(config: Config, db: Database) -> list[DiagnosticCheck]:
     """Run non-destructive checks for common NetFather setup problems."""
     checks: list[DiagnosticCheck] = []
@@ -74,6 +104,8 @@ def run_diagnostics(config: Config, db: Database) -> list[DiagnosticCheck]:
         )
     )
     checks.append(_network_tools_check())
+    checks.append(_active_discovery_check())
+    checks.append(_firewall_check(config))
 
     net = get_network_status()
     network_known = any((net.interface, net.local_ip, net.gateway))

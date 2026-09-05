@@ -177,7 +177,7 @@ def test_get_discovery_data_does_not_trigger_a_new_scan(monkeypatch: pytest.Monk
     data = tui_data.get_discovery_data(state)
 
     assert data.hosts == state.last_scan_hosts
-    assert data.backend == "ip neigh (basic)"
+    assert "Scapy" in data.backend
 
 
 def test_trigger_scan_uses_scan_network_and_configured_timeout(
@@ -186,7 +186,7 @@ def test_trigger_scan_uses_scan_network_and_configured_timeout(
     captured: dict[str, int] = {}
     expected_hosts = [DiscoveredHost(ip="192.168.1.1", interface="eth0", mac="aa:bb:cc:dd:ee:ff", state="REACHABLE")]
 
-    def fake_scan_network(timeout_seconds: int):
+    def fake_scan_network(timeout_seconds: int, **_kwargs):
         captured["timeout_seconds"] = timeout_seconds
         return expected_hosts
 
@@ -202,7 +202,7 @@ def test_trigger_scan_uses_scan_network_and_configured_timeout(
 def test_trigger_scan_returns_message_when_no_hosts_found(
     config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(tui_data, "scan_network", lambda timeout_seconds: [])
+    monkeypatch.setattr(tui_data, "scan_network", lambda timeout_seconds, **_kwargs: [])
 
     hosts, error = tui_data.trigger_scan(config)
 

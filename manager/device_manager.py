@@ -8,6 +8,8 @@ last_seen/IP/vendor senkronizasyonunu ve alan güncellemelerini yürütür.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -19,6 +21,7 @@ from core.exceptions import DeviceNotFoundError, DuplicateDeviceError, Validatio
 from core.logger import get_logger
 from core.time_utils import utc_now
 from models.device import Device
+from models.event import Event
 from network.device import lookup_vendor, normalize_mac
 
 if TYPE_CHECKING:
@@ -99,6 +102,8 @@ class DeviceManager:
                     ip=ip,
                     vendor=vendor or lookup_vendor(normalized_mac),
                     device_type=device_type,
+                    online=False,
+                    auto_registered=False,
                     created_at=utc_now(),
                 )
             except ValueError as exc:
@@ -232,6 +237,7 @@ class DeviceManager:
                     "Cihaz güncellenemedi; isim veya MAC başka bir kayıtla çakışıyor."
                 ) from exc
             session.refresh(device)
+            session.add(Event(event_type="device_updated", description=f"Device updated: {device.name}", device_mac=device.mac))
             session.expunge(device)
             log.info("Cihaz güncellendi: %s (%s)", device.name, device.mac)
             return device
@@ -260,16 +266,88 @@ class DeviceManager:
                 device = self._find_by_mac(session, normalized_mac)
                 if device is None:
                     continue
+                was_online = bool(device.online)
                 device.last_seen = now
+                device.online = True
                 if host.ip:
                     device.ip = host.ip
                 if host.vendor:
                     device.vendor = host.vendor
+                if getattr(host, "hostname", None):
+                    device.hostname = host.hostname
+                if getattr(host, "device_type", None):
+                    device.device_type = host.device_type
+                if getattr(host, "os_hint", None):
+                    device.os_hint = host.os_hint
+                if not was_online:
+                    session.add(Event(event_type="device_online", description=f"{device.name} ağa katıldı", device_mac=device.mac))
                 updated += 1
 
         if updated:
             log.info("Discovery ile %s kayıtlı cihaz güncellendi", updated)
         return updated
+
+    @staticmethod
+    def _auto_name(host: "DiscoveredHost", existing_names: set[str]) -> str:
+        base = (getattr(host, "hostname", None) or getattr(host, "device_type", None) or
+                getattr(host, "vendor", None) or "Device")
+        base = re.sub(r"[^A-Za-z0-9_. -]+", "", str(base)).strip()[:80] or "Device"
+        suffix = (host.mac or host.ip).replace(":", "").replace(".", "")[-6:]
+        candidate = f"{base}-{suffix}"
+        n = 2
+        while candidate in existing_names:
+            candidate = f"{base}-{suffix}-{n}"; n += 1
+        existing_names.add(candidate)
+        return candidate
+
+    def reconcile_discovery(self, hosts: Iterable["DiscoveredHost"], *, auto_register: bool = True,
+                            offline_after_seconds: int = 45) -> tuple[int, int, int]:
+        """Persist discovery, auto-register new devices and update online/offline state.
+
+        Returns ``(new_devices, updated_devices, offline_devices)``. Devices are
+        marked offline only after the grace period, preventing a single missed
+        neighbour-cache sample from creating false leave events.
+        """
+        now = utc_now(); new_count = updated = offline_count = 0
+        seen: set[str] = set()
+        with self.db.session() as session:
+            names = set(session.scalars(select(Device.name)).all())
+            for host in hosts:
+                if not host.mac:
+                    continue
+                try: mac = normalize_mac(host.mac)
+                except (TypeError, ValueError, AttributeError): continue
+                seen.add(mac)
+                device = self._find_by_mac(session, mac)
+                if device is None:
+                    if not auto_register: continue
+                    device = Device(name=self._auto_name(host, names), mac=mac, ip=host.ip,
+                                    vendor=host.vendor or lookup_vendor(mac),
+                                    device_type=getattr(host, "device_type", None) or "unknown",
+                                    hostname=getattr(host, "hostname", None),
+                                    os_hint=getattr(host, "os_hint", None), online=True,
+                                    auto_registered=True, created_at=now, last_seen=now)
+                    session.add(device); session.flush(); new_count += 1
+                    session.add(Event(event_type="device_discovered", description=f"Yeni cihaz keşfedildi: {device.name}", device_mac=mac))
+                    continue
+                was_online = bool(device.online)
+                device.ip = host.ip or device.ip
+                device.vendor = host.vendor or device.vendor
+                device.hostname = getattr(host, "hostname", None) or device.hostname
+                device.os_hint = getattr(host, "os_hint", None) or device.os_hint
+                dtype = getattr(host, "device_type", None)
+                if dtype and dtype != "unknown": device.device_type = dtype
+                device.last_seen = now; device.online = True; updated += 1
+                if not was_online:
+                    session.add(Event(event_type="device_online", description=f"{device.name} ağa katıldı", device_mac=mac))
+
+            threshold = now - dt.timedelta(seconds=max(1, offline_after_seconds))
+            for device in session.scalars(select(Device).where(Device.online.is_(True))).all():
+                if device.mac in seen: continue
+                if device.last_seen is not None and device.last_seen <= threshold:
+                    device.online = False; offline_count += 1
+                    session.add(Event(event_type="device_offline", description=f"{device.name} ağdan ayrıldı", device_mac=device.mac))
+        return new_count, updated, offline_count
 
     def delete_device(self, name: str) -> None:
         """
@@ -280,5 +358,6 @@ class DeviceManager:
         """
         with self.db.session() as session:
             device = self._require_by_name(session, name)
+            session.add(Event(event_type="device_deleted", description=f"Device deleted: {device.name}", device_mac=device.mac))
             session.delete(device)
             log.info("Cihaz silindi: %s", name)

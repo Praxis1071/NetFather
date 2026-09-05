@@ -2,195 +2,122 @@
 
 [![CI](https://github.com/Praxis1071/NetFather/actions/workflows/ci.yml/badge.svg)](https://github.com/Praxis1071/NetFather/actions/workflows/ci.yml)
 [![Build and Release](https://github.com/Praxis1071/NetFather/actions/workflows/release.yml/badge.svg)](https://github.com/Praxis1071/NetFather/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/Praxis1071/NetFather?display_name=tag&sort=semver)](https://github.com/Praxis1071/NetFather/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Praxis1071/NetFather?include_prereleases)](https://github.com/Praxis1071/NetFather/releases)
 [![Downloads](https://img.shields.io/github/downloads/Praxis1071/NetFather/total)](https://github.com/Praxis1071/NetFather/releases)
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://www.python.org/)
-[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-555)](#platform-support)
+[![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue)](https://www.python.org/)
+[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#platform-desteği)
 [![License](https://img.shields.io/github/license/Praxis1071/NetFather)](LICENSE)
 
-**NetFather** is a terminal-first local network management application for discovering devices you are authorized to manage, keeping device records, assigning profiles, and preparing time-based access policies. It provides both a Typer/Rich CLI and an interactive Rich TUI.
+NetFather, yönettiğiniz yerel ağdaki cihazları **keşfetmek, tanımak, kalıcı olarak yönetmek, profil/policy uygulamak, zamanlamak ve gerektiğinde gerçek OS firewall backend'i ile sınırlandırmak** için geliştirilmiş Python tabanlı CLI + TUI ağ yönetim aracıdır.
 
-> NetFather is not a pentest, exploit, password-cracking, phishing, or Wi-Fi attack framework. Use it only on networks you own or are authorized to administer.
+> **v0.4.0** — sürüm numarası değiştirilmeden multi-platform runtime, hybrid discovery, live topology, audit/monitoring, policy engine, firewall enforcement, daemon/service ve release pipeline aynı sürüm kapsamına alınmıştır.
 
-## v0.4.0
+## v0.4.0 özellikleri
 
-v0.4.0 turns NetFather into a multi-platform application and adds a release pipeline that produces ready-to-run builds for the major desktop operating systems.
+- **Hybrid discovery:** OS neighbor/ARP cache + Scapy ARP active discovery.
+- **Fallback:** Scapy/Npcap/root yetkisi yoksa passive discovery çalışmaya devam eder.
+- **Canlı cihaz takibi:** online/offline geçişleri grace period ile tespit edilir.
+- **Otomatik kayıt:** yeni MAC ilk görüldüğünde güvenli, benzersiz isimle DB'ye alınabilir.
+- **Cihaz zenginleştirme:** IP, MAC, hostname, vendor, cihaz tipi ve opsiyonel ICMP TTL tabanlı OS hint.
+- **Kalıcı cihaz kimliği:** tekrar gelen cihaz MAC üzerinden tanınır; özel kullanıcı ismi korunur.
+- **TUI:** Overview, Devices, Network, Discovery, Topology, Profiles, Rules, Monitoring, Events, Settings ve Logs.
+- **Live topology:** gateway/router kökü + online/offline cihazlar + ALLOW/BLOCK policy durumu.
+- **Profil yönetimi:** unrestricted / controlled / blocked.
+- **Policy Engine:** profil ve aktif zaman kurallarından effective ALLOW/BLOCK üretir; BLOCK önceliklidir.
+- **Schedule:** `HH:MM-HH:MM`, gece yarısını aşan aralıklar dahil.
+- **Gerçek enforcement:** Linux nftables, Windows Defender Firewall, macOS PF.
+- **Güvenli firewall scope:** yalnız NetFather table/group/anchor'ı ve yalnız private/link-local IPv4 hedefler.
+- **Rollback:** NetFather kurallarını güvenli biçimde kaldırma; apply hatasında rollback denemesi.
+- **Daemon:** discovery + policy + firewall sync loop.
+- **Service helper:** systemd, Windows Task Scheduler, macOS LaunchDaemon plan/install/uninstall.
+- **Traffic monitoring:** interface counters + Scapy ile opsiyonel gerçek packet sample ve policy sınıflandırması.
+- **Event/Audit:** cihaz, profil, kural ve firewall değişiklikleri kalıcı event geçmişine yazılır.
+- **Gerçek firewall testi:** Linux CI'da iki network namespace + veth + nftables + ping ile gerçek ALLOW/BLOCK doğrulaması.
+- **Multi-platform releases:** Windows/Linux/macOS için x64 ve ARM64 native portable build.
 
-### Highlights
+## İndirme
 
-- Official **Windows, Linux, and macOS** runtime support.
-- Cross-platform network status and passive neighbor discovery.
-- Cross-platform TUI input handling, including native Windows Console keys.
-- Terminal compatibility modes: `auto`, `inline`, `fullscreen`, and `plain`.
-- Platform-native config/data directories.
-- `netfather platform` runtime/backend inspection.
-- Platform-aware `netfather doctor` diagnostics.
-- Device CRUD and discovery sync.
-- Profile CRUD (`unrestricted`, `controlled`, `blocked`).
-- Time-based rule CRUD and schedule evaluation, including overnight windows such as `22:00-07:00`.
-- Local-only OUI/vendor lookup; device MAC addresses are not sent to a remote lookup service.
-- GitHub Actions CI across Windows/Linux/macOS and Python 3.12-3.14.
-- Release builds for x64/ARM64 where GitHub-hosted runners are available.
-- Release checksums (`SHA256SUMS.txt`).
+Hazır binary kullanmak için **GitHub Releases** bölümünü tercih edin.
 
-## Platform support
+| OS | Mimari | Release asset |
+|---|---|---|
+| Windows | x64 | `NetFather-windows-x64.zip` |
+| Windows | ARM64 | `NetFather-windows-arm64.zip` |
+| Linux | x64 | `NetFather-linux-x64.tar.gz` |
+| Linux | ARM64 | `NetFather-linux-arm64.tar.gz` |
+| macOS | Intel x64 | `NetFather-macos-x64.tar.gz` |
+| macOS | Apple Silicon | `NetFather-macos-arm64.tar.gz` |
 
-| Platform | Status | Network status backend | Passive discovery backend |
-|---|---|---|---|
-| Linux x64 / ARM64 | Official | `ip route get` | `ip neigh` |
-| Windows x64 / ARM64 | Official | PowerShell `Get-NetIPConfiguration` | `Get-NetNeighbor`, fallback `arp -a` |
-| macOS Intel / Apple Silicon | Official | `route` + `ipconfig` | `arp -an` |
-| Other POSIX systems | Experimental | socket fallback | best-effort `arp` fallback |
+Release ayrıca `SHA256SUMS.txt` içerir.
 
-Passive discovery reads the operating system's existing neighbor/ARP cache. It does not automatically add unknown hosts to the database.
-
-## Download and install
-
-The recommended installation method is the **Releases** page. Each release contains separate portable builds for each supported OS/architecture plus `SHA256SUMS.txt`.
-
-### Windows x64
-
-PowerShell:
-
-```powershell
-Invoke-WebRequest `
-  -Uri "https://github.com/Praxis1071/NetFather/releases/latest/download/NetFather-windows-x64.zip" `
-  -OutFile "NetFather-windows-x64.zip"
-
-Expand-Archive .\NetFather-windows-x64.zip -DestinationPath . -Force
-.\NetFather\netfather.exe --version
-.\NetFather\netfather.exe doctor
-```
-
-### Windows ARM64
-
-```powershell
-Invoke-WebRequest `
-  -Uri "https://github.com/Praxis1071/NetFather/releases/latest/download/NetFather-windows-arm64.zip" `
-  -OutFile "NetFather-windows-arm64.zip"
-
-Expand-Archive .\NetFather-windows-arm64.zip -DestinationPath . -Force
-.\NetFather\netfather.exe --version
-```
-
-### Linux x64
-
-```bash
-curl -L -o NetFather-linux-x64.tar.gz \
-  https://github.com/Praxis1071/NetFather/releases/latest/download/NetFather-linux-x64.tar.gz
-
-tar -xzf NetFather-linux-x64.tar.gz
-sudo install -m 0755 NetFather/netfather /usr/local/bin/netfather
-netfather --version
-netfather doctor
-```
-
-### Linux ARM64
-
-```bash
-curl -L -o NetFather-linux-arm64.tar.gz \
-  https://github.com/Praxis1071/NetFather/releases/latest/download/NetFather-linux-arm64.tar.gz
-
-tar -xzf NetFather-linux-arm64.tar.gz
-sudo install -m 0755 NetFather/netfather /usr/local/bin/netfather
-```
-
-### macOS Apple Silicon (ARM64)
-
-```bash
-curl -L -o NetFather-macos-arm64.tar.gz \
-  https://github.com/Praxis1071/NetFather/releases/latest/download/NetFather-macos-arm64.tar.gz
-
-tar -xzf NetFather-macos-arm64.tar.gz
-chmod +x NetFather/netfather
-./NetFather/netfather --version
-```
-
-### macOS Intel (x64)
-
-```bash
-curl -L -o NetFather-macos-x64.tar.gz \
-  https://github.com/Praxis1071/NetFather/releases/latest/download/NetFather-macos-x64.tar.gz
-
-tar -xzf NetFather-macos-x64.tar.gz
-chmod +x NetFather/netfather
-./NetFather/netfather --version
-```
-
-The current macOS binaries are CI-built portable binaries and are not guaranteed to be Apple-notarized. If macOS policy blocks an unsigned build, use the Python/source installation until signed/notarized releases are introduced.
-
-### Verify downloads
-
-Download `SHA256SUMS.txt` from the same release.
-
-Linux:
-
-```bash
-sha256sum -c SHA256SUMS.txt --ignore-missing
-```
-
-macOS:
-
-```bash
-shasum -a 256 -c SHA256SUMS.txt
-```
-
-PowerShell:
-
-```powershell
-Get-FileHash .\NetFather-windows-x64.zip -Algorithm SHA256
-```
-
-Compare the printed hash with the corresponding entry in `SHA256SUMS.txt`.
-
-## Install from source
-
-Use this for development or when you want to run directly from Python:
+### Kaynaktan kurulum
 
 ```bash
 git clone https://github.com/Praxis1071/NetFather.git
 cd NetFather
-python -m venv .venv
+python3 -m venv .venv
 ```
 
 Linux/macOS:
 
 ```bash
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e .
+python -m pip install -U pip
+pip install -r requirements.txt
+pip install -e .
 ```
 
 Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m pip install -e .
+py -m pip install -U pip
+pip install -r requirements.txt
+pip install -e .
 ```
 
-Then:
+Kontrol:
 
 ```bash
 netfather --version
+netfather platform
 netfather doctor
 ```
 
-## TUI
+## Hızlı kullanım
 
-In an interactive terminal, running NetFather without a subcommand opens the TUI:
+### Discovery
+
+```bash
+# config'teki mode (varsayılan hybrid)
+netfather scan
+
+# yalnız OS ARP/neighbor cache
+netfather scan --mode passive
+
+# Scapy active ARP
+netfather scan --mode active --subnet 192.168.1.0/24
+
+# bulunan yeni cihazları kaydetme
+netfather scan --mode hybrid --register
+```
+
+Discovery ayarlarını kalıcı değiştir:
+
+```bash
+netfather settings discovery --mode hybrid --interval 15 --auto-register
+netfather settings discovery --os-detection --vendor-detection --hostname
+```
+
+### TUI ve topology
 
 ```bash
 netfather
-```
-
-Or explicitly:
-
-```bash
 netfather tui
+netfather topology
 ```
 
-Compatibility modes:
+TUI terminal uyumluluk modları:
 
 ```bash
 netfather tui --mode auto
@@ -199,176 +126,190 @@ netfather tui --mode fullscreen
 netfather tui --mode plain
 ```
 
-`auto` is the recommended default and prefers the compatibility-oriented inline renderer.
-
-### TUI keys
-
-| Key | Action |
-|---|---|
-| `↑` / `↓` | Move navigation selection |
-| `j` / `k` | Portable navigation fallback |
-| `Home` / `End` | Jump to first/last navigation item |
-| `Enter` | Open selected screen |
-| `r` | Refresh; rescans on Devices/Discovery |
-| `s` | Sync known registered devices from the latest discovery result |
-| `q` / `Ctrl+C` | Exit |
-
-## CLI
-
-### Runtime and diagnostics
+### Cihaz / profil / policy
 
 ```bash
-netfather platform
-netfather status
-netfather doctor
-netfather config
-netfather config --path
-```
-
-### Discovery
-
-```bash
-netfather scan
-netfather scan --sync-known
-```
-
-`--sync-known` updates only already-registered MAC addresses. Unknown hosts are not automatically persisted.
-
-### Devices
-
-```bash
-netfather device add --name "Tablet" --mac AA:BB:CC:DD:EE:FF --type tablet
 netfather device list
-netfather device info "Tablet"
-netfather device update "Tablet" --ip 192.168.1.25 --type tablet
-netfather device remove "Tablet"
+netfather device update "Device-ab12cd" --name "Living Room TV"
+netfather profile create --device "Living Room TV" --name Family --mode controlled
+netfather policy
 ```
 
-### Profiles
-
-```bash
-netfather profile create --device "Tablet" --name "Child" --mode controlled
-netfather profile list
-netfather profile set-mode 1 blocked
-netfather profile remove 1
-```
-
-### Rules
+### Zaman kuralı
 
 ```bash
 netfather rules create \
-  --device "Tablet" \
+  --device "Living Room TV" \
   --action block \
-  --schedule 22:00-07:00 \
-  --description "Night schedule"
+  --schedule 23:00-07:00 \
+  --description "Night policy"
 
-netfather rules list
 netfather rules active
-netfather rules disable 1
-netfather rules enable 1
-netfather rules remove 1
 ```
 
-## Data paths
-
-NetFather uses platform-native paths by default. XDG overrides remain supported on every OS for portable/development environments.
-
-| OS | Config | Data/database/logs |
-|---|---|---|
-| Linux | `~/.config/netfather/config.toml` | `~/.local/share/netfather/` |
-| Windows | `%APPDATA%\NetFather\config.toml` | `%LOCALAPPDATA%\NetFather\` |
-| macOS | `~/Library/Application Support/NetFather/config.toml` | `~/Library/Application Support/NetFather/` |
-
-The exact paths in use can always be inspected with:
+### Firewall: önce preview, sonra apply
 
 ```bash
-netfather platform
-netfather config
+# gerçek sistem değişikliği YAPMAZ
+netfather firewall sync
+
+# yönetici/root yetkisiyle gerçek uygular
+sudo netfather firewall sync --apply       # Linux/macOS
+netfather firewall sync --apply            # elevated Windows terminal
+
+# yalnız NetFather kurallarını kaldırır
+netfather firewall rollback --apply
 ```
 
-## Local vendor lookup
-
-Set a custom IEEE/Wireshark OUI file with:
+Firewall backend seçimi:
 
 ```bash
-export NETFATHER_OUI_FILE=/path/to/oui.txt
+netfather settings firewall --backend auto
+# auto => Linux:nftables, Windows:Windows Firewall, macOS:PF
 ```
 
-PowerShell:
+**Varsayılan enforcement kapalıdır.** Ayrıntı: [docs/FIREWALL.md](docs/FIREWALL.md).
 
-```powershell
-$env:NETFATHER_OUI_FILE = "C:\path\to\manuf"
-```
-
-Without a local OUI database discovery still works; only vendor names are unavailable.
-
-## Development
+### Monitoring / audit
 
 ```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
+netfather monitor
+netfather monitor --capture-seconds 3
+netfather events --limit 100
 ```
 
-The GitHub CI workflow runs the suite on Windows, Linux, and macOS using Python 3.12, 3.13, and 3.14.
+Packet capture Scapy ve OS'e göre root/admin/Npcap gerektirebilir. Basic interface counters capture yetkisi olmadan çalışır.
 
-## Building releases
+### Daemon
 
-Release binaries are built natively on GitHub-hosted runners with PyInstaller. See [RELEASES.md](RELEASES.md) for the complete release procedure and artifact names.
+Tek tur:
 
-The release workflow produces:
+```bash
+netfather daemon once --active-scan
+netfather daemon once --apply
+```
+
+Sürekli:
+
+```bash
+netfather daemon run --interval 5
+sudo netfather daemon run --apply
+```
+
+Servis planını gerçek değişiklik yapmadan gör:
+
+```bash
+netfather service plan
+netfather service install
+```
+
+Gerçek kurulum:
+
+```bash
+sudo netfather service install --apply
+```
+
+Windows'ta Task Scheduler, Linux'ta systemd, macOS'ta LaunchDaemon kullanılır.
+
+## Platform desteği
+
+| Özellik | Linux | Windows | macOS |
+|---|---:|---:|---:|
+| CLI/TUI | ✅ | ✅ | ✅ |
+| Passive discovery | `ip neigh` | Get-NetNeighbor / `arp -a` | `arp -an` |
+| Active discovery | Scapy ARP | Scapy + Npcap | Scapy/BPF |
+| Firewall | nftables | Defender Firewall | PF |
+| Daemon helper | systemd | Task Scheduler | LaunchDaemon |
+| x64 release | ✅ | ✅ | ✅ |
+| ARM64 release | ✅ | ✅ | ✅ |
+
+## Güvenlik modeli
+
+NetFather yalnız **sahibi olduğunuz veya yönetme yetkinizin bulunduğu yerel ağlarda** kullanılmalıdır. Aktif discovery ve firewall işlemleri ayrıcalıklı yetki gerektirebilir.
+
+Önemli ilkeler:
+
+1. Firewall varsayılan olarak dry-run/enforcement disabled.
+2. Gerçek uygulama açık `--apply` gerektirir.
+3. Yalnız private/link-local IPv4 policy hedeflenir.
+4. NetFather başka uygulamaların firewall kurallarını global olarak flush etmez.
+5. nftables yalnız `inet netfather`, Windows yalnız `NetFather` group, PF yalnız `com.apple/netfather` anchor kullanır.
+6. Event/audit geçmişi cihaz ve policy değişikliklerini izler.
+7. OS tahmini bir **hint**tir; güvenlik kararı için kesin fingerprint değildir.
+
+Bkz. [SECURITY.md](SECURITY.md) ve [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Config
+
+Platform-native config/data yolları kullanılır. `netfather config --path` aktif dosyayı gösterir.
+
+Başlıca discovery alanları:
+
+```toml
+[discovery]
+mode = "hybrid"
+interval_seconds = 15
+active_timeout_seconds = 2
+subnet = ""
+auto_register = true
+hostname_resolution = true
+vendor_detection = true
+os_detection = false
+offline_after_seconds = 45
+
+[firewall]
+backend = "auto"
+enforcement_enabled = false
+rollback_on_error = true
+```
+
+## Test
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+CI ayrıca Linux'ta privileged network namespace entegrasyon testi çalıştırır.
+
+## Mimari
 
 ```text
-NetFather-windows-x64.zip
-NetFather-windows-arm64.zip
-NetFather-linux-x64.tar.gz
-NetFather-linux-arm64.tar.gz
-NetFather-macos-x64.tar.gz
-NetFather-macos-arm64.tar.gz
-SHA256SUMS.txt
+CLI / TUI
+   │
+   ├── Discovery ── passive OS cache + active Scapy
+   │       │
+   │       └── DeviceTracker ── Device DB + Event/Audit
+   │
+   ├── Profiles + Rules ── PolicyEngine
+   │                         │
+   │                         └── FirewallEngine
+   │                              ├── nftables
+   │                              ├── Windows Firewall
+   │                              └── macOS PF
+   │
+   ├── Topology / Monitor / Events
+   │
+   └── RuleScheduler / Daemon / Service helper
 ```
 
-## Current limitation
+## v1.0 hedef zinciri
 
-Rules are stored and evaluated, but privileged firewall enforcement is intentionally not enabled yet. The scheduler/firewall layer will be implemented separately so that Windows Firewall, Linux nftables, and macOS packet-filter behavior can be designed and tested independently instead of pretending one OS-specific implementation is portable.
+v0.4.0 artık temel uçtan uca hattı kurar:
 
-Live packet/traffic monitoring is also planned for a later release.
+**Keşfet → Tanı → Topology'de göster → İsimlendir → Profile bağla → Policy hesapla → Zamanla → Firewall'a uygula → Canlı izle → Audit et**.
 
-## Project structure
+v1.0'a kadar hedef; backend dayanıklılığını, per-device trafik muhasebesini, servis lifecycle'ını ve platform-specific enforcement test kapsamını production seviyesine taşımaktır.
 
-```text
-NetFather/
-├── netfather.py
-├── cli/                 # Typer commands and Rich output
-├── tui/                 # TUI state/data/render/portable terminal input
-├── core/                # config, database, platform, logging, diagnostics
-├── network/             # cross-platform status/discovery/OUI lookup
-├── models/              # SQLAlchemy ORM models
-├── manager/             # device/profile/rule business logic
-├── scheduler/           # future enforcement scheduler
-├── monitor/             # future live monitoring
-├── scripts/             # release/version helper scripts
-├── .github/workflows/   # CI + multi-platform release builds
-└── tests/
-```
+## Dokümantasyon
 
-## Roadmap
-
-| Area | Status |
-|---|---|
-| Config / DB / logging / CLI | ✅ |
-| Windows/Linux/macOS platform abstraction | ✅ v0.4 |
-| Cross-platform network status | ✅ v0.4 |
-| Cross-platform passive discovery | ✅ v0.4 |
-| Cross-platform TUI | ✅ v0.4 |
-| Multi-OS CI + release builds | ✅ v0.4 |
-| Device/profile/rule management | ✅ |
-| Local OUI vendor lookup | ✅ |
-| Signed/notarized release pipeline | ⏳ |
-| OS-specific firewall enforcement | ⏳ |
-| Scheduler daemon/service | ⏳ |
-| Live traffic monitoring | ⏳ |
-| Optional active discovery backend | ⏳ |
+- [RELEASES.md](RELEASES.md) — release/build süreci
+- [CHANGELOG.md](CHANGELOG.md) — sürüm değişiklikleri
+- [SECURITY.md](SECURITY.md) — güvenlik ve yetki modeli
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — bileşenler/veri akışı
+- [docs/DISCOVERY.md](docs/DISCOVERY.md) — active/passive discovery
+- [docs/FIREWALL.md](docs/FIREWALL.md) — enforcement/rollback
 
 ## License
 
-NetFather is licensed under the [MIT License](LICENSE).
+MIT — [LICENSE](LICENSE)

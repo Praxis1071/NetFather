@@ -18,6 +18,8 @@ from core.exceptions import RuleNotFoundError, ValidationError
 from core.logger import get_logger
 from manager.device_manager import DeviceManager
 from models.rule import Rule
+from models.event import Event
+from models.device import Device
 
 log = get_logger("rule_manager")
 
@@ -99,6 +101,7 @@ class RuleManager:
                 description=cleaned_description,
             )
             session.add(rule)
+            session.add(Event(event_type="rule_created", description=f"Rule {normalized_action} {normalized_schedule} created for {device.name}", device_mac=device.mac))
             session.flush()
             session.refresh(rule)
             rule.device = device
@@ -133,6 +136,8 @@ class RuleManager:
             if rule is None:
                 raise RuleNotFoundError(f"Kural bulunamadı: id={rule_id}")
             rule.enabled = enabled
+            device = session.get(Device, rule.device_id)
+            session.add(Event(event_type="rule_changed", description=f"Rule {rule_id} {'enabled' if enabled else 'disabled'}", device_mac=device.mac if device else None))
             session.flush()
             session.refresh(rule)
             session.expunge(rule)
@@ -144,6 +149,8 @@ class RuleManager:
             rule = session.get(Rule, rule_id)
             if rule is None:
                 raise RuleNotFoundError(f"Kural bulunamadı: id={rule_id}")
+            device = session.get(Device, rule.device_id)
+            session.add(Event(event_type="rule_deleted", description=f"Rule {rule_id} deleted", device_mac=device.mac if device else None))
             session.delete(rule)
             log.info("Kural silindi: id=%s", rule_id)
 
