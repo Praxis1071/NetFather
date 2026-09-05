@@ -31,9 +31,19 @@ class NftablesBackend(FirewallBackend):
         set_body = f"type ipv4_addr; elements = {{ {elements} }}" if ips else "type ipv4_addr;"
         return f'''table inet {self.table} {{
   set blocked4 {{ {set_body} }}
-  chain input {{ type filter hook input priority 0; policy accept; ip saddr @blocked4 drop }}
-  chain output {{ type filter hook output priority 0; policy accept; ip daddr @blocked4 drop }}
-  chain forward {{ type filter hook forward priority 0; policy accept; ip saddr @blocked4 drop; ip daddr @blocked4 drop }}
+  chain input {{
+    type filter hook input priority 0; policy accept;
+    ip saddr @blocked4 drop
+  }}
+  chain output {{
+    type filter hook output priority 0; policy accept;
+    ip daddr @blocked4 drop
+  }}
+  chain forward {{
+    type filter hook forward priority 0; policy accept;
+    ip saddr @blocked4 drop
+    ip daddr @blocked4 drop
+  }}
 }}'''
     def apply(self, blocked_ips: list[str], *, apply: bool = False) -> FirewallResult:
         ips = normalize_local_ips(blocked_ips); script = self.preview(ips)

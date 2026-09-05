@@ -240,5 +240,12 @@ def test_macos_status_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda: "gateway: 192.168.0.1\ninterface: en0\n",
     )
     monkeypatch.setattr(interface_module, "_run_macos_ipconfig", lambda interface: "192.168.0.23")
+    monkeypatch.setattr(interface_module, "_run_macos_netmask", lambda interface: "255.255.255.0")
     status = get_network_status(platform_name="darwin")
-    assert status == NetworkStatus(interface="en0", local_ip="192.168.0.23", gateway="192.168.0.1")
+    assert status == NetworkStatus(
+        interface="en0",
+        local_ip="192.168.0.23",
+        gateway="192.168.0.1",
+        netmask="255.255.255.0",
+        prefix_length=24,
+    )
