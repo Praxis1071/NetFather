@@ -60,6 +60,9 @@ def get_overview_data(config: Config, db: Database, state: AppState) -> Overview
     scan = get_scan_controller().snapshot()
     hosts = get_scan_controller().hosts()
     last_time = scan.finished_at or scan.started_at or state.last_scan_time
+    active_error = scan.error
+    if scan.status is ScanStatus.IDLE:
+        active_error = state.last_scan_error
     data = OverviewData(
         interface=net_status.interface,
         local_ip=net_status.local_ip,
@@ -67,7 +70,7 @@ def get_overview_data(config: Config, db: Database, state: AppState) -> Overview
         network_status_known=net_status != NetworkStatus(),
         last_scan_time=last_time,
         last_scan_device_count=len(hosts) if hosts else (len(state.last_scan_hosts) if state.last_scan_time else None),
-        last_scan_error=scan.error or state.last_scan_error,
+        last_scan_error=active_error,
     )
     try:
         data.registered_device_count = len(DeviceManager(db).list_devices())
@@ -112,7 +115,7 @@ def _scan_backend_text(snapshot: ScanSnapshot) -> str:
             methods.append("vendor" if options.vendor_detection else "no-vendor")
             methods.append("OS" if options.os_detection else "no-OS")
         return (
-            f"Status: SCANNING\n"
+            "Status: SCANNING\n"
             f"Progress: {_progress_bar(snapshot.progress)} {snapshot.progress}%\n"
             f"Current: {snapshot.current_operation}\n"
             f"Mode: {mode}  Enrichment: {', '.join(methods) or 'default'}\n"
@@ -120,7 +123,7 @@ def _scan_backend_text(snapshot: ScanSnapshot) -> str:
             f"New devices: {snapshot.new_count}\n"
             f"Updated: {snapshot.updated_count}\n"
             f"Offline: {snapshot.offline_count}\n"
-            f"Action: [bold cyan][ r ][/bold cyan] STOP SCAN"
+            "Action: [bold cyan][ r ][/bold cyan] STOP SCAN"
         )
     if snapshot.status is ScanStatus.CANCELLED:
         return (
@@ -146,24 +149,25 @@ def get_discovery_data(state: AppState) -> DiscoveryData:
     controller = get_scan_controller()
     snapshot = controller.snapshot()
     hosts = controller.hosts() or list(state.last_scan_hosts)
+    error = snapshot.error if snapshot.status is not ScanStatus.IDLE else state.last_scan_error
     return DiscoveryData(
         backend=_scan_backend_text(snapshot),
         last_scan_time=snapshot.finished_at or snapshot.started_at or state.last_scan_time,
-        last_scan_error=snapshot.error or state.last_scan_error,
+        last_scan_error=error,
         hosts=hosts,
         scan=snapshot,
     )
 
 
 def trigger_scan(config: Config) -> tuple[list[DiscoveredHost], str | None]:
-    """Toggle the background scan: start when idle, cancel when running."""
+    """Toggle the background scan without doing discovery work on the TUI thread."""
     controller = get_scan_controller()
     if controller.snapshot().running:
         controller.cancel()
         return controller.hosts(), "Scan stopping..."
     if not controller.start(config):
         return controller.hosts(), "A scan is already running."
-    return [], None
+    return [], "Scan started in background."
 
 
 def get_registered_devices(db: Database) -> tuple[list[Device], str | None]:
