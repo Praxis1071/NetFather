@@ -1,9 +1,8 @@
 """Background, cancellable discovery orchestration for the TUI.
 
 The discovery implementation remains in :mod:`network.discovery`; this module
-only owns lifecycle, progress state, cancellation, and optional persistence
-reconciliation.  It deliberately uses stdlib threads so the TUI never blocks
-on Scapy/subprocess/network work.
+owns lifecycle, progress state, cancellation, and registry reconciliation.
+The stdlib worker keeps Scapy/subprocess/network work off the TUI thread.
 """
 
 from __future__ import annotations
@@ -11,16 +10,14 @@ from __future__ import annotations
 import datetime as dt
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
 
 from core.config import Config
+from core.database import get_database
 from core.logger import get_logger
+from manager.device_manager import DeviceManager
 from network.discovery import DiscoveredHost, scan_network
-
-if TYPE_CHECKING:
-    from core.database import Database
 
 log = get_logger("tui.scan")
 
@@ -36,8 +33,6 @@ class ScanStatus(str, Enum):
 
 @dataclass(frozen=True)
 class ScanOptions:
-    """Immutable scan settings captured when a scan starts."""
-
     mode: str
     subnet: str | None
     timeout_seconds: int
@@ -86,13 +81,7 @@ class ScanSnapshot:
 
 
 class ScanController:
-    """Single-flight background scan controller.
-
-    Cancellation is cooperative at the orchestration boundary.  A running
-    Scapy ``srp``/subprocess call cannot safely be killed from another Python
-    thread, so STOP SCAN immediately releases the TUI and marks the result as
-    cancelled; late worker results are discarded rather than applied.
-    """
+    """Single-flight, background, cancellable discovery controller."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -102,17 +91,6 @@ class ScanController:
         self._snapshot = ScanSnapshot()
         self._hosts: list[DiscoveredHost] = []
         self._config: Config | None = None
-        self._db: Database | None = None
-        self._reconcile: Callable[[Database, list[DiscoveredHost], Config], tuple[int, int, int]] | None = None
-
-    def bind_database(
-        self,
-        db: Database,
-        reconcile: Callable[[Database, list[DiscoveredHost], Config], tuple[int, int, int]],
-    ) -> None:
-        with self._lock:
-            self._db = db
-            self._reconcile = reconcile
 
     def snapshot(self) -> ScanSnapshot:
         with self._lock:
@@ -129,13 +107,12 @@ class ScanController:
             self._config = config
             self._hosts = []
             self._cancel_event.clear()
-            started = dt.datetime.now()
             options = ScanOptions.from_config(config)
             self._snapshot = ScanSnapshot(
                 status=ScanStatus.SCANNING,
                 progress=5,
                 current_operation=self._operation_label(options, "initializing"),
-                started_at=started,
+                started_at=dt.datetime.now(),
                 options=options,
             )
             self._future = self._executor.submit(self._run, options)
@@ -146,10 +123,10 @@ class ScanController:
             if not self._snapshot.running:
                 return False
             self._cancel_event.set()
-            self._snapshot = ScanSnapshot(
-                **{**self._snapshot.__dict__,
-                   "status": ScanStatus.CANCELLING,
-                   "current_operation": "Stopping scan safely..."}
+            self._snapshot = replace(
+                self._snapshot,
+                status=ScanStatus.CANCELLING,
+                current_operation="Stopping scan safely...",
             )
             return True
 
@@ -160,19 +137,30 @@ class ScanController:
     @staticmethod
     def _operation_label(options: ScanOptions, phase: str) -> str:
         mode = options.mode.strip().lower()
-        if mode == "hybrid":
-            return f"Hybrid discovery: {phase}"
         return f"{mode.title()} discovery: {phase}"
 
     def _publish(self, **changes: object) -> None:
         with self._lock:
-            self._snapshot = ScanSnapshot(**{**self._snapshot.__dict__, **changes})
+            self._snapshot = replace(self._snapshot, **changes)
+
+    def _reconcile(self, hosts: list[DiscoveredHost], config: Config) -> tuple[int, int, int]:
+        db = get_database(config.database_path)
+        manager = DeviceManager(db)
+        return manager.reconcile_discovery(
+            hosts,
+            auto_register=config.discovery.auto_register,
+            offline_after_seconds=config.discovery.offline_after_seconds,
+        )
 
     def _run(self, options: ScanOptions) -> None:
         try:
             if self._cancel_event.is_set():
                 self._finish_cancelled()
                 return
+
+            config = self._config
+            if config is None:
+                raise RuntimeError("Scan configuration kayboldu.")
 
             self._publish(progress=15, current_operation=self._operation_label(options, "discovering hosts"))
             hosts = scan_network(
@@ -189,28 +177,20 @@ class ScanController:
                 self._finish_cancelled()
                 return
 
-            self._publish(progress=90, current_operation="Finalizing discovery results", found_count=len(hosts))
             with self._lock:
-                self._hosts.extend(hosts)
-                db = self._db
-                config = self._config
-                reconcile = self._reconcile
+                self._hosts = list(hosts)
+            self._publish(progress=80, current_operation="Correlating discovered devices", found_count=len(hosts))
 
-            new_count = updated_count = offline_count = 0
-            if db is not None and config is not None and reconcile is not None:
-                self._publish(current_operation="Synchronizing device registry")
-                new_count, updated_count, offline_count = reconcile(db, hosts, config)
-
+            new_count, updated_count, offline_count = self._reconcile(hosts, config)
             if self._cancel_event.is_set():
                 self._finish_cancelled()
                 return
 
-            finished = dt.datetime.now()
             self._publish(
                 status=ScanStatus.COMPLETED,
                 progress=100,
                 current_operation="Scan complete",
-                finished_at=finished,
+                finished_at=dt.datetime.now(),
                 found_count=len(hosts),
                 new_count=new_count,
                 updated_count=updated_count,
