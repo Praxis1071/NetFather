@@ -40,22 +40,8 @@ class TerminalCapabilities:
 
 _DUMB_TERMS = {"", "dumb", "unknown", "cons25"}
 _ANSI_TERM_PREFIXES = (
-    "ansi",
-    "alacritty",
-    "foot",
-    "gnome",
-    "konsole",
-    "kitty",
-    "linux",
-    "putty",
-    "rxvt",
-    "screen",
-    "st",
-    "tmux",
-    "vt",
-    "wezterm",
-    "windows",
-    "xterm",
+    "ansi", "alacritty", "foot", "gnome", "konsole", "kitty", "linux", "putty",
+    "rxvt", "screen", "st", "tmux", "vt", "wezterm", "windows", "xterm",
 )
 _TRUTHY = {"1", "true", "yes", "on"}
 _CSI_KEY_RE = re.compile(rb"^\x1b\[(?:[0-9;?<>]*)([ABHF])$")
@@ -89,9 +75,6 @@ def _terminfo_supports_alternate_screen(term: str, fd: int) -> bool | None:
 
 def _supports_cursor_addressing(term: str, family: PlatformFamily) -> bool:
     if family is PlatformFamily.WINDOWS:
-        # Rich enables Windows VT support where available and has its own
-        # console compatibility path.  Inline mode therefore works even when
-        # Windows does not expose a Unix-style TERM variable.
         return True
     lowered = term.lower()
     if lowered in _DUMB_TERMS:
@@ -106,83 +89,55 @@ def detect_terminal_capabilities(
     requested_mode: str | TerminalMode | None = None,
     platform_name: str | None = None,
 ) -> TerminalCapabilities:
-    """Detect a safe TUI rendering strategy for the current host terminal."""
     env = os.environ if environ is None else environ
     family = platform_family(platform_name)
     try:
         interactive = bool(stdin.isatty() and stdout.isatty())
     except (AttributeError, OSError):
         interactive = False
-
     raw_term = env.get("TERM", "").strip().lower()
     term = raw_term or ("windows-console" if family is PlatformFamily.WINDOWS else "")
     cursor_addressing = _supports_cursor_addressing(term, family)
-
     env_mode = env.get("NETFATHER_TUI_MODE")
-    mode = _parse_mode(
-        env_mode
-        if requested_mode in (None, TerminalMode.AUTO, "auto") and env_mode
-        else requested_mode
-    )
+    mode = _parse_mode(env_mode if requested_mode in (None, TerminalMode.AUTO, "auto") and env_mode else requested_mode)
     if mode is TerminalMode.AUTO and env.get("NETFATHER_TUI_FULLSCREEN", "").lower() in _TRUTHY:
         mode = TerminalMode.FULLSCREEN
-
     if not interactive:
         return TerminalCapabilities(False, term, TerminalMode.PLAIN, False, False, "not a TTY")
-
     if mode is TerminalMode.PLAIN or (term in _DUMB_TERMS and family is not PlatformFamily.WINDOWS):
         return TerminalCapabilities(True, term, TerminalMode.PLAIN, False, False, "limited TERM")
-
     try:
         fd = stdout.fileno()
     except (AttributeError, OSError):
         fd = 1
-
     if family is PlatformFamily.WINDOWS:
         alt_screen: bool | None = True
     else:
         alt_screen = _terminfo_supports_alternate_screen(term, fd)
         if alt_screen is None:
             alt_screen = term.startswith(_ANSI_TERM_PREFIXES)
-
     if mode is TerminalMode.FULLSCREEN:
         if alt_screen and cursor_addressing:
             return TerminalCapabilities(True, term, TerminalMode.FULLSCREEN, True, True)
         if cursor_addressing:
-            return TerminalCapabilities(
-                True, term, TerminalMode.INLINE, bool(alt_screen), True,
-                "fullscreen unsupported; using inline mode",
-            )
-        return TerminalCapabilities(
-            True, term, TerminalMode.PLAIN, bool(alt_screen), False,
-            "cursor addressing unavailable; using plain mode",
-        )
-
+            return TerminalCapabilities(True, term, TerminalMode.INLINE, bool(alt_screen), True, "fullscreen unsupported; using inline mode")
+        return TerminalCapabilities(True, term, TerminalMode.PLAIN, bool(alt_screen), False, "cursor addressing unavailable; using plain mode")
     if mode is TerminalMode.INLINE:
         if cursor_addressing:
             return TerminalCapabilities(True, term, TerminalMode.INLINE, bool(alt_screen), True)
         return TerminalCapabilities(True, term, TerminalMode.PLAIN, bool(alt_screen), False, "limited TERM")
-
-    # AUTO is compatibility-first.  Do not depend on alternate-screen even if
-    # the terminal advertises it; users can opt into fullscreen explicitly.
     if cursor_addressing:
         return TerminalCapabilities(True, term, TerminalMode.INLINE, bool(alt_screen), True)
     return TerminalCapabilities(True, term, TerminalMode.PLAIN, bool(alt_screen), False, "limited TERM")
 
 
 @contextlib.contextmanager
-def terminal_input_mode(
-    stream: IO[str],
-    platform_name: str | None = None,
-) -> Iterator[None]:
-    """Enable immediate key delivery on POSIX; Windows needs no mode switch."""
+def terminal_input_mode(stream: IO[str], platform_name: str | None = None) -> Iterator[None]:
     if platform_family(platform_name) is PlatformFamily.WINDOWS:
         yield
         return
-
     import termios
     import tty
-
     fd = stream.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
@@ -211,7 +166,6 @@ def decode_key_sequence(sequence: bytes) -> str:
         return "HOME"
     if sequence == b"G":
         return "END"
-
     match = _CSI_KEY_RE.fullmatch(sequence)
     if match:
         return {b"A": "UP", b"B": "DOWN", b"H": "HOME", b"F": "END"}[match.group(1)]
@@ -226,32 +180,13 @@ def decode_key_sequence(sequence: bytes) -> str:
 
 
 def decode_windows_key(first: str, second: str | None = None) -> str:
-    """Translate ``msvcrt.getwch`` events into NetFather symbolic keys."""
     if first in ("\x00", "\xe0"):
-        return {
-            "H": "UP",
-            "P": "DOWN",
-            "G": "HOME",
-            "O": "END",
-        }.get(second or "", "")
-    mapping = {
-        "\x03": "QUIT",
-        "q": "QUIT",
-        "Q": "QUIT",
-        "\r": "ENTER",
-        "\n": "ENTER",
-        "r": "REFRESH",
-        "R": "REFRESH",
-        "s": "SYNC",
-        "S": "SYNC",
-        "j": "DOWN",
-        "J": "DOWN",
-        "k": "UP",
-        "K": "UP",
-        "g": "HOME",
-        "G": "END",
-    }
-    return mapping.get(first, "")
+        return {"H": "UP", "P": "DOWN", "G": "HOME", "O": "END"}.get(second or "", "")
+    return {
+        "\x03": "QUIT", "q": "QUIT", "Q": "QUIT", "\r": "ENTER", "\n": "ENTER",
+        "r": "REFRESH", "R": "REFRESH", "s": "SYNC", "S": "SYNC",
+        "j": "DOWN", "J": "DOWN", "k": "UP", "K": "UP", "g": "HOME", "G": "END",
+    }.get(first, "")
 
 
 def _sequence_is_complete(sequence: bytes) -> bool:
@@ -271,15 +206,13 @@ def _read_windows_key(timeout: float) -> str:
         import msvcrt
     except ImportError:
         return ""
-
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             if msvcrt.kbhit():
                 first = msvcrt.getwch()
                 if first in ("\x00", "\xe0"):
-                    second = msvcrt.getwch()
-                    return decode_windows_key(first, second)
+                    return decode_windows_key(first, msvcrt.getwch())
                 return decode_windows_key(first)
         except OSError:
             return ""
@@ -306,7 +239,6 @@ def _read_posix_key(stream: IO[str], timeout: float, escape_timeout: float) -> s
         return ""
     if first != b"\x1b":
         return decode_key_sequence(first)
-
     sequence = bytearray(first)
     deadline = time.monotonic() + escape_timeout
     while len(sequence) < 32 and not _sequence_is_complete(bytes(sequence)):
@@ -335,7 +267,14 @@ def read_key(
     escape_timeout: float = 0.06,
     platform_name: str | None = None,
 ) -> str:
-    """Read one portable key event from a POSIX terminal or Windows console."""
+    """Read one portable key event.
+
+    ``TICK`` is emitted when no key arrived before the timeout.  The TUI
+    treats it as a redraw tick, which keeps background scan progress visible
+    without coupling the scanner to Rich or the terminal renderer.
+    """
     if platform_family(platform_name) is PlatformFamily.WINDOWS:
-        return _read_windows_key(timeout)
-    return _read_posix_key(stream, timeout, escape_timeout)
+        result = _read_windows_key(timeout)
+    else:
+        result = _read_posix_key(stream, timeout, escape_timeout)
+    return result or "TICK"
