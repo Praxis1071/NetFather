@@ -96,13 +96,58 @@ class DiscoveryData:
     scan: ScanSnapshot = field(default_factory=ScanSnapshot)
 
 
+def _progress_bar(progress: int, width: int = 20) -> str:
+    progress = max(0, min(100, progress))
+    filled = round(width * progress / 100)
+    return "[" + "=" * filled + "." * (width - filled) + "]"
+
+
+def _scan_backend_text(snapshot: ScanSnapshot) -> str:
+    options = snapshot.options
+    if snapshot.status in {ScanStatus.SCANNING, ScanStatus.CANCELLING}:
+        mode = options.mode if options else "unknown"
+        methods = []
+        if options:
+            methods.append("hostname" if options.hostname_resolution else "no-hostname")
+            methods.append("vendor" if options.vendor_detection else "no-vendor")
+            methods.append("OS" if options.os_detection else "no-OS")
+        return (
+            f"Status: SCANNING\n"
+            f"Progress: {_progress_bar(snapshot.progress)} {snapshot.progress}%\n"
+            f"Current: {snapshot.current_operation}\n"
+            f"Mode: {mode}  Enrichment: {', '.join(methods) or 'default'}\n"
+            f"Devices found: {snapshot.found_count}\n"
+            f"New devices: {snapshot.new_count}\n"
+            f"Updated: {snapshot.updated_count}\n"
+            f"Offline: {snapshot.offline_count}\n"
+            f"Action: [bold cyan][ r ][/bold cyan] STOP SCAN"
+        )
+    if snapshot.status is ScanStatus.CANCELLED:
+        return (
+            "Status: CANCELLED\n"
+            f"Devices found before stop: {snapshot.found_count}\n"
+            "Action: [bold cyan][ r ][/bold cyan] SCAN NOW"
+        )
+    if snapshot.status is ScanStatus.FAILED:
+        return f"Status: FAILED\nError: {snapshot.error or 'Unknown error'}\nAction: [bold cyan][ r ][/bold cyan] SCAN NOW"
+    if snapshot.status is ScanStatus.COMPLETED:
+        return (
+            "Status: COMPLETE\n"
+            f"Devices found: {snapshot.found_count}\n"
+            f"New devices: {snapshot.new_count}\n"
+            f"Updated: {snapshot.updated_count}\n"
+            f"Offline: {snapshot.offline_count}\n"
+            "Action: [bold cyan][ r ][/bold cyan] SCAN NOW"
+        )
+    return "Status: READY\nAction: [bold cyan][ r ][/bold cyan] SCAN NOW"
+
+
 def get_discovery_data(state: AppState) -> DiscoveryData:
     controller = get_scan_controller()
     snapshot = controller.snapshot()
-    hosts = controller.hosts()
-    if not hosts:
-        hosts = list(state.last_scan_hosts)
+    hosts = controller.hosts() or list(state.last_scan_hosts)
     return DiscoveryData(
+        backend=_scan_backend_text(snapshot),
         last_scan_time=snapshot.finished_at or snapshot.started_at or state.last_scan_time,
         last_scan_error=snapshot.error or state.last_scan_error,
         hosts=hosts,
@@ -111,16 +156,14 @@ def get_discovery_data(state: AppState) -> DiscoveryData:
 
 
 def trigger_scan(config: Config) -> tuple[list[DiscoveredHost], str | None]:
-    """Start a scan without blocking the TUI thread."""
+    """Toggle the background scan: start when idle, cancel when running."""
     controller = get_scan_controller()
+    if controller.snapshot().running:
+        controller.cancel()
+        return controller.hosts(), "Scan stopping..."
     if not controller.start(config):
         return controller.hosts(), "A scan is already running."
     return [], None
-
-
-# ---------------------------------------------------------------------------
-# Devices / configuration / logs / profiles / rules
-# ---------------------------------------------------------------------------
 
 
 def get_registered_devices(db: Database) -> tuple[list[Device], str | None]:
