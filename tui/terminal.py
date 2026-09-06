@@ -267,12 +267,7 @@ def read_key(
     escape_timeout: float = 0.06,
     platform_name: str | None = None,
 ) -> str:
-    """Read one portable key event.
-
-    ``TICK`` is emitted when no key arrived before the timeout.  The TUI
-    treats it as a redraw tick, which keeps background scan progress visible
-    without coupling the scanner to Rich or the terminal renderer.
-    """
+    """Read one portable key event; timeout returns ``TICK`` for redraws."""
     if platform_family(platform_name) is PlatformFamily.WINDOWS:
         result = _read_windows_key(timeout)
     else:
