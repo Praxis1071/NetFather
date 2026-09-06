@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
-"""
-NetFather - Yerel ağ cihaz ve erişim yönetim aracı.
-
-Kullanım:
-    python netfather.py --help
-    python netfather.py status
-    python netfather.py device list
-"""
-
-from __future__ import annotations
-
-from cli.main import run
+"""Launch the NetFather GTK4 Linux desktop application."""
+from gui.app import main
 
 if __name__ == "__main__":
-    run()
+    raise SystemExit(main())
