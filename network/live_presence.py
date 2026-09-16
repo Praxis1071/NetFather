@@ -25,8 +25,8 @@ class LivePresenceService:
         self.discovery = DiscoveryService(device_manager=DeviceManager(database))
         self.monitor = PresenceMonitor(self._on_presence_event)
         self._lock = threading.Lock()
-        self._timer: threading.Timer | None = None
-        self._pending = False
+        self._event_timer: threading.Timer | None = None
+        self._safety_timer: threading.Timer | None = None
         self._stopped = True
 
     @property
@@ -38,32 +38,37 @@ class LivePresenceService:
             return
         self._stopped = False
         self.monitor.start()
+        self._schedule_periodic_safety_scan()
 
     def stop(self) -> None:
         self._stopped = True
         self.monitor.stop()
         with self._lock:
-            timer = self._timer
-            self._timer = None
-            self._pending = False
-        if timer is not None:
-            timer.cancel()
+            event_timer = self._event_timer
+            safety_timer = self._safety_timer
+            self._event_timer = None
+            self._safety_timer = None
+        if event_timer is not None:
+            event_timer.cancel()
+        if safety_timer is not None:
+            safety_timer.cancel()
 
     def _on_presence_event(self, _event: PresenceEvent) -> None:
         if self._stopped:
             return
         with self._lock:
-            self._pending = True
-            if self._timer is not None and self._timer.is_alive():
+            if self._event_timer is not None and self._event_timer.is_alive():
                 return
-            self._timer = threading.Timer(0.75, self._reconcile)
-            self._timer.daemon = True
-            self._timer.start()
+            self._event_timer = threading.Timer(0.75, self._event_reconcile)
+            self._event_timer.daemon = True
+            self._event_timer.start()
+
+    def _event_reconcile(self) -> None:
+        with self._lock:
+            self._event_timer = None
+        self._reconcile()
 
     def _reconcile(self) -> None:
-        with self._lock:
-            self._pending = False
-            self._timer = None
         if self._stopped or self.discovery.running:
             return
         snapshot = self.discovery.scan(
@@ -76,13 +81,19 @@ class LivePresenceService:
         )
         if self.on_reconciled is not None:
             self.on_reconciled(snapshot)
-        if not self._stopped:
-            self._schedule_periodic_safety_scan()
+        self._schedule_periodic_safety_scan()
 
     def _schedule_periodic_safety_scan(self) -> None:
+        if self._stopped:
+            return
         with self._lock:
-            if self._timer is not None and self._timer.is_alive():
+            if self._safety_timer is not None and self._safety_timer.is_alive():
                 return
-            self._timer = threading.Timer(float(self.interval_seconds), self._reconcile)
-            self._timer.daemon = True
-            self._timer.start()
+            self._safety_timer = threading.Timer(float(self.interval_seconds), self._safety_reconcile)
+            self._safety_timer.daemon = True
+            self._safety_timer.start()
+
+    def _safety_reconcile(self) -> None:
+        with self._lock:
+            self._safety_timer = None
+        self._reconcile()
