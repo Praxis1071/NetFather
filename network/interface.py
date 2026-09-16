@@ -13,7 +13,11 @@ from core.logger import get_logger
 log = get_logger("network.interface")
 _ROUTE_PROBE_TARGET = "8.8.8.8"
 _COMMAND_TIMEOUT_SECONDS = 3
-_ROUTE_GET_PATTERN = re.compile(r"(?:via\s+(?P<gateway>\S+)\s+)?dev\s+(?P<interface>\S+)(?:.*?\bsrc\s+(?P<src_ip>\S+))?")
+_ROUTE_GET_PATTERN = re.compile(
+    r"(?:via\s+(?P<gateway>\S+)\s+)?dev\s+(?P<interface>\S+)"
+    r"(?:.*?\bsrc\s+(?P<src_ip>\S+))?"
+)
+
 
 @dataclass
 class NetworkStatus:
@@ -26,11 +30,30 @@ class NetworkStatus:
 
 def _run_process(args: list[str], timeout: int = _COMMAND_TIMEOUT_SECONDS) -> str | None:
     try:
-        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False)
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
     except (subprocess.TimeoutExpired, OSError) as exc:
         log.debug("Linux network command failed (%s): %s", args[0] if args else "?", exc)
         return None
     return result.stdout if result.returncode == 0 else None
+
+
+def _parse_route_get_output(raw: str) -> NetworkStatus:
+    """Parse the stable fields from ``ip route get`` output."""
+    status = NetworkStatus()
+    match = _ROUTE_GET_PATTERN.search(raw)
+    if match:
+        status.interface = match.group("interface")
+        status.gateway = match.group("gateway")
+        status.local_ip = match.group("src_ip")
+    return status
 
 
 def _socket_local_ip(target: str = _ROUTE_PROBE_TARGET) -> str | None:
@@ -50,14 +73,10 @@ def _linux_network_status() -> NetworkStatus:
     ip_binary = shutil.which("ip")
     if ip_binary is None:
         return NetworkStatus(local_ip=_socket_local_ip())
+
     raw = _run_process([ip_binary, "route", "get", _ROUTE_PROBE_TARGET])
-    status = NetworkStatus()
-    if raw:
-        match = _ROUTE_GET_PATTERN.search(raw)
-        if match:
-            status.interface = match.group("interface")
-            status.gateway = match.group("gateway")
-            status.local_ip = match.group("src_ip")
+    status = _parse_route_get_output(raw) if raw else NetworkStatus()
+
     if status.interface:
         addr = _run_process([ip_binary, "-o", "-4", "addr", "show", "dev", status.interface])
         if addr:
@@ -65,6 +84,7 @@ def _linux_network_status() -> NetworkStatus:
             if match:
                 status.local_ip = status.local_ip or match.group(1)
                 status.prefix_length = int(match.group(2))
+
     status.local_ip = status.local_ip or _socket_local_ip()
     return status
 
