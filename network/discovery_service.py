@@ -1,9 +1,4 @@
-"""Application-facing discovery service.
-
-Discovery stays independent from GTK widgets. A scan runs in the caller's
-worker thread, then observations are resolved into stable identities and can
-be persisted through the device manager.
-"""
+"""Application-facing discovery service."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -22,7 +17,6 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class DiscoverySnapshot:
     """Immutable result of the latest discovery cycle."""
-
     started_at: datetime
     completed_at: datetime
     scanned: int
@@ -40,7 +34,6 @@ class DiscoverySnapshot:
 
 class DiscoveryService:
     """Coordinate discovery, identity resolution and device persistence."""
-
     def __init__(self, resolver: IdentityResolver | None = None, device_manager: DeviceManager | None = None) -> None:
         self.resolver = resolver or IdentityResolver()
         self.device_manager = device_manager
@@ -82,6 +75,7 @@ class DiscoveryService:
         deep_versions: bool = True,
         deep_os: bool = True,
         deep_top_ports: int = 100,
+        deep_elevate: bool = False,
     ) -> DiscoverySnapshot:
         """Run one discovery cycle and reconcile stable identities."""
         with self._lock:
@@ -103,22 +97,14 @@ class DiscoveryService:
                 deep_versions=deep_versions,
                 deep_os=deep_os,
                 deep_top_ports=deep_top_ports,
+                deep_elevate=deep_elevate,
             )
             observations = observations_from_hosts(hosts)
             identities = self.resolver.reconcile(observations)
             new_devices = updated_devices = offline_devices = 0
             if self.device_manager is not None:
                 new_devices, updated_devices, offline_devices = self.device_manager.reconcile_discovery(hosts, auto_register=True)
-            snapshot = DiscoverySnapshot(
-                started_at=started,
-                completed_at=utc_now(),
-                scanned=len(hosts),
-                hosts=tuple(hosts),
-                identities=tuple(identities),
-                new_devices=new_devices,
-                updated_devices=updated_devices,
-                offline_devices=offline_devices,
-            )
+            snapshot = DiscoverySnapshot(started_at=started, completed_at=utc_now(), scanned=len(hosts), hosts=tuple(hosts), identities=tuple(identities), new_devices=new_devices, updated_devices=updated_devices, offline_devices=offline_devices)
         except Exception as exc:
             snapshot = DiscoverySnapshot(started_at=started, completed_at=utc_now(), scanned=0, identities=self.resolver.all(), error=str(exc))
         finally:
