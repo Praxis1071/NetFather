@@ -3,7 +3,8 @@
 The normal discovery path stays lightweight. This module adds a deliberately
 opt-in, local-network-only deep pass for TCP/UDP services, service versions,
 and OS fingerprinting when Nmap and the required Linux privileges are
-available.
+available. Elevation is scoped to the Nmap process through pkexec; the GTK
+application itself never needs to run as root.
 """
 from __future__ import annotations
 
@@ -47,6 +48,10 @@ def nmap_available() -> bool:
     return shutil.which("nmap") is not None
 
 
+def pkexec_available() -> bool:
+    return shutil.which("pkexec") is not None
+
+
 def privileged() -> bool:
     try:
         return os.geteuid() == 0
@@ -65,13 +70,6 @@ def _validate_local_target(target: str) -> str:
     return str(network)
 
 
-def _text(node: ET.Element | None, path: str) -> str | None:
-    if node is None:
-        return None
-    value = node.findtext(path)
-    return value.strip() if value else None
-
-
 def _parse_nmap_xml(raw: str) -> tuple[DeepScanResult, ...]:
     root = ET.fromstring(raw)
     results: list[DeepScanResult] = []
@@ -86,7 +84,8 @@ def _parse_nmap_xml(raw: str) -> tuple[DeepScanResult, ...]:
         mac_node = next((a for a in addresses if a.attrib.get("addrtype") == "mac"), None)
         mac = mac_node.attrib.get("addr") if mac_node is not None else None
         vendor = mac_node.attrib.get("vendor") if mac_node is not None else None
-        hostname = _text(host.find("hostnames/hostname"), ".")
+        hostname_node = host.find("hostnames/hostname")
+        hostname = hostname_node.attrib.get("name") if hostname_node is not None else None
         tcp_ports: list[int] = []
         udp_ports: list[int] = []
         services: list[str] = []
@@ -121,26 +120,14 @@ def _parse_nmap_xml(raw: str) -> tuple[DeepScanResult, ...]:
         osclass = host.find("os/osmatch/osclass")
         if osclass is not None:
             device_type = osclass.attrib.get("type")
-        distance = host.find("distance")
         latency = None
-        if distance is not None:
+        times = host.find("times")
+        if times is not None:
             try:
-                latency = float(host.find("times").attrib.get("srtt", "0")) / 1000.0 if host.find("times") is not None else None
-            except (AttributeError, ValueError):
+                latency = float(times.attrib.get("srtt", "0")) / 1000.0
+            except ValueError:
                 latency = None
-        results.append(DeepScanResult(
-            ip=ip,
-            mac=mac,
-            vendor=vendor,
-            hostname=hostname,
-            os_name=os_name,
-            os_accuracy=os_accuracy,
-            device_type=device_type,
-            open_tcp_ports=tuple(sorted(set(tcp_ports))),
-            open_udp_ports=tuple(sorted(set(udp_ports))),
-            services=tuple(dict.fromkeys(services)),
-            latency_ms=latency,
-        ))
+        results.append(DeepScanResult(ip=ip, mac=mac, vendor=vendor, hostname=hostname, os_name=os_name, os_accuracy=os_accuracy, device_type=device_type, open_tcp_ports=tuple(sorted(set(tcp_ports))), open_udp_ports=tuple(sorted(set(udp_ports))), services=tuple(dict.fromkeys(services)), latency_ms=latency))
     return tuple(results)
 
 
@@ -152,34 +139,39 @@ def run_deep_scan(
     include_versions: bool = True,
     top_ports: int = 100,
     timeout_seconds: int = 300,
+    elevate: bool = False,
 ) -> DeepScanReport:
     """Run an opt-in, bounded deep inventory of a local IPv4 network."""
     if not nmap_available():
         return DeepScanReport(False, privileged(), warnings=("Nmap bulunamadı; deep scan kullanılamıyor.",))
     network = _validate_local_target(target)
     is_privileged = privileged()
-    ports = max(10, min(1000, int(top_ports)))
-    command = ["nmap", "-n", "-Pn", "--open", "--max-retries", "2", "-T3", "--host-timeout", "2m", "-oX", "-", network]
     warnings: list[str] = []
+    prefix = ["nmap"]
+    if not is_privileged and elevate:
+        if not pkexec_available():
+            warnings.append("pkexec bulunamadı; elevated scan normal kullanıcı yetkisiyle devam ediyor.")
+        else:
+            prefix = ["pkexec", "nmap"]
+            is_privileged = True
+    ports = max(10, min(1000, int(top_ports)))
+    command = prefix + ["-n", "-Pn", "--open", "--max-retries", "2", "-T3", "--host-timeout", "2m"]
     if is_privileged:
-        command[1:1] = ["-sS"]
+        command.append("-sS")
         if include_os:
-            command.insert(2, "-O")
-            command.insert(3, "--osscan-limit")
-            command.insert(4, "--osscan-guess")
+            command.extend(["-O", "--osscan-limit", "--osscan-guess"])
     else:
-        command[1:1] = ["-sT"]
+        command.append("-sT")
         if include_os:
             warnings.append("OS fingerprinting için root/raw-packet yetkisi gerekli; bu taramada atlandı.")
-    command.extend(["--top-ports", str(ports)])
     if include_udp:
         if is_privileged:
-            command.insert(command.index("--top-ports"), "-sU")
+            command.append("-sU")
         else:
             warnings.append("UDP taraması için gerekli ayrıcalık yok; UDP aşaması atlandı.")
     if include_versions:
-        command.insert(command.index("--top-ports"), "-sV")
-        command.insert(command.index("-sV") + 1, "--version-light")
+        command.extend(["-sV", "--version-light"])
+    command.extend(["--top-ports", str(ports), "-oX", "-", network])
     try:
         completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=max(30, timeout_seconds), check=False)
     except subprocess.TimeoutExpired:
@@ -191,7 +183,7 @@ def run_deep_scan(
         return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + [detail]))
     try:
         hosts = _parse_nmap_xml(completed.stdout)
-    except ET.ParseError as exc:
-        log.warning("Nmap XML parse failed: %s", exc)
+    except ET.ParseError:
+        log.warning("Nmap XML parse failed")
         return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + ["Nmap çıktısı çözümlenemedi."]))
     return DeepScanReport(True, is_privileged, tuple(command), hosts=hosts, warnings=tuple(warnings))
