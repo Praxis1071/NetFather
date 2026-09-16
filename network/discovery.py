@@ -1,4 +1,4 @@
-"""Linux local-network discovery using iproute2 and Scapy."""
+"""Linux local-network discovery using iproute2, Scapy and optional Nmap."""
 from __future__ import annotations
 
 import ipaddress
@@ -6,7 +6,7 @@ import re
 import shutil
 import socket
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core.logger import get_logger
 from network.device import lookup_vendor
@@ -28,6 +28,11 @@ class DiscoveredHost:
     device_type: str | None = None
     os_hint: str | None = None
     source: str = "passive"
+    open_tcp_ports: tuple[int, ...] = field(default_factory=tuple)
+    open_udp_ports: tuple[int, ...] = field(default_factory=tuple)
+    services: tuple[str, ...] = field(default_factory=tuple)
+    scan_method: str | None = None
+    latency_ms: float | None = None
 
 
 def _is_meaningless_address(ip_text: str) -> bool:
@@ -72,10 +77,22 @@ def _merge_discovery(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
         current = result[index]
         for attr in ("interface", "mac", "state", "vendor", "hostname", "device_type", "os_hint"):
             value = getattr(host, attr)
-            if value and (not getattr(current, attr) or host.source == "active"):
+            if value and (not getattr(current, attr) or host.source in {"active", "deep", "active+passive"}):
                 setattr(current, attr, value)
+        if host.open_tcp_ports:
+            current.open_tcp_ports = tuple(sorted(set(current.open_tcp_ports) | set(host.open_tcp_ports)))
+        if host.open_udp_ports:
+            current.open_udp_ports = tuple(sorted(set(current.open_udp_ports) | set(host.open_udp_ports)))
+        if host.services:
+            current.services = tuple(dict.fromkeys((*current.services, *host.services)))
+        if host.latency_ms is not None:
+            current.latency_ms = host.latency_ms
+        if host.scan_method:
+            current.scan_method = host.scan_method
         if host.source == "active" and current.source == "passive":
             current.source = "active+passive"
+        elif host.source == "deep":
+            current.source = "deep+" + current.source if current.source != "passive" else "deep"
     return result
 
 
@@ -134,7 +151,7 @@ def _scan_scapy(subnet: str, timeout_seconds: int) -> list[DiscoveredHost]:
     except ImportError:
         log.info("Scapy is not installed; active discovery unavailable.")
         return []
-    except Exception as exc:  # Scapy backend/privilege failures vary
+    except Exception as exc:
         log.info("Scapy active discovery unavailable: %s", exc)
         return []
     hosts: list[DiscoveredHost] = []
@@ -142,7 +159,7 @@ def _scan_scapy(subnet: str, timeout_seconds: int) -> list[DiscoveredHost]:
         ip_text = str(getattr(received, "psrc", "") or "")
         mac = _valid_mac_or_none(str(getattr(received, "hwsrc", "") or ""))
         if ip_text and not _is_meaningless_address(ip_text):
-            hosts.append(DiscoveredHost(ip=ip_text, mac=mac, state="REACHABLE", source="active"))
+            hosts.append(DiscoveredHost(ip=ip_text, mac=mac, state="REACHABLE", source="active", scan_method="scapy-arp"))
     return _dedupe(hosts)
 
 
@@ -154,7 +171,7 @@ def _resolve_hostname(ip: str) -> str | None:
 
 
 def _guess_device_type(host: DiscoveredHost) -> str:
-    text = " ".join(filter(None, (host.hostname, host.vendor))).lower()
+    text = " ".join(filter(None, (host.hostname, host.vendor, host.device_type, host.os_hint))).lower()
     if any(x in text for x in ("iphone", "android", "pixel", "samsung", "xiaomi", "huawei")):
         return "phone"
     if any(x in text for x in ("ipad", "tablet")):
@@ -190,6 +207,36 @@ def _probe_os_hint(ip: str, timeout: float = 0.35) -> str | None:
         return None
 
 
+def _apply_deep_scan(hosts: list[DiscoveredHost], subnet: str) -> tuple[list[DiscoveredHost], tuple[str, ...]]:
+    try:
+        from network.deep_scan import run_deep_scan
+        report = run_deep_scan(subnet, include_udp=True, include_os=True, include_versions=True)
+    except ValueError as exc:
+        return hosts, (str(exc),)
+    except Exception as exc:
+        log.warning("Deep scan failed: %s", exc)
+        return hosts, (f"Deep scan failed: {exc}",)
+    by_ip = {host.ip: host for host in hosts}
+    for result in report.hosts:
+        host = by_ip.get(result.ip)
+        if host is None:
+            host = DiscoveredHost(ip=result.ip, source="deep")
+            hosts.append(host)
+            by_ip[result.ip] = host
+        host.mac = _valid_mac_or_none(result.mac) or host.mac
+        host.vendor = result.vendor or host.vendor
+        host.hostname = result.hostname or host.hostname
+        host.os_hint = result.os_name or host.os_hint
+        host.device_type = result.device_type or host.device_type
+        host.open_tcp_ports = result.open_tcp_ports
+        host.open_udp_ports = result.open_udp_ports
+        host.services = result.services
+        host.scan_method = "nmap"
+        host.latency_ms = result.latency_ms
+        host.state = "REACHABLE"
+    return hosts, report.warnings
+
+
 def _enrich(hosts: list[DiscoveredHost], *, hostname_resolution: bool, vendor_detection: bool, os_detection: bool) -> list[DiscoveredHost]:
     for host in hosts:
         if vendor_detection and host.mac and not host.vendor:
@@ -211,37 +258,35 @@ def observations_from_hosts(hosts: list[DiscoveredHost]) -> list[DeviceObservati
             continue
         source = host.source.strip().lower() or "unknown"
         confidence = 0.95 if "active" in source else 0.8
+        if "deep" in source:
+            confidence = min(1.0, confidence + 0.03)
         if host.hostname:
             confidence = min(1.0, confidence + 0.03)
         if host.vendor:
             confidence = min(1.0, confidence + 0.02)
-        observations.append(DeviceObservation(
-            mac=host.mac,
-            ip=host.ip,
-            hostname=host.hostname,
-            vendor=host.vendor,
-            interface=host.interface,
-            device_type=host.device_type,
-            os_hint=host.os_hint,
-            source=source,
-            confidence=confidence,
-        ))
+        observations.append(DeviceObservation(mac=host.mac, ip=host.ip, hostname=host.hostname, vendor=host.vendor, interface=host.interface, device_type=host.device_type, os_hint=host.os_hint, source=source, confidence=confidence))
     return observations
 
 
 def scan_network(timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT, *, mode: str = "passive", subnet: str | None = None, hostname_resolution: bool = False, vendor_detection: bool = True, os_detection: bool = False, active_timeout_seconds: int | None = None) -> list[DiscoveredHost]:
-    """Discover local IPv4 hosts using Linux neighbour state and optional Scapy ARP."""
+    """Discover local IPv4 hosts using layered Linux discovery and optional deep Nmap inventory."""
     normalized_mode = mode.strip().lower()
-    if normalized_mode not in {"passive", "active", "hybrid"}:
+    if normalized_mode not in {"passive", "active", "hybrid", "deep"}:
         normalized_mode = "passive"
     try:
-        passive = _scan_linux(timeout_seconds) if normalized_mode in {"passive", "hybrid"} else []
+        passive = _scan_linux(timeout_seconds) if normalized_mode in {"passive", "hybrid", "deep"} else []
         active = []
-        if normalized_mode in {"active", "hybrid"}:
+        if normalized_mode in {"active", "hybrid", "deep"}:
             cidr = subnet or infer_local_subnet()
             if cidr:
                 active = _scan_scapy(cidr, active_timeout_seconds or min(timeout_seconds, 5))
         hosts = _merge_discovery(passive + active)
+        if normalized_mode == "deep":
+            cidr = subnet or infer_local_subnet()
+            if cidr:
+                hosts, warnings = _apply_deep_scan(hosts, cidr)
+                for warning in warnings:
+                    log.warning("%s", warning)
         return _enrich(hosts, hostname_resolution=hostname_resolution, vendor_detection=vendor_detection, os_detection=os_detection)
     except Exception as exc:
         log.warning("Linux discovery failed: %s", exc)
