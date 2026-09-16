@@ -90,19 +90,96 @@ class NetFatherWindow(Gtk.ApplicationWindow):
 
     @staticmethod
     def _settings_page() -> Gtk.Widget:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         page.set_margin_top(28)
         page.set_margin_bottom(28)
         page.set_margin_start(32)
         page.set_margin_end(32)
+
         title = Gtk.Label(label="Settings", xalign=0)
         title.add_css_class("title-1")
         page.append(title)
-        text = Gtk.Label(
-            label="NetFather is currently focused on a reliable Linux + GTK4 workflow. Advanced application settings will be introduced here as the backend services mature.",
+
+        subtitle = Gtk.Label(
+            label="Configure NetFather and learn more about the application.",
             xalign=0,
             wrap=True,
         )
-        text.add_css_class("dim-label")
-        page.append(text)
+        subtitle.add_css_class("dim-label")
+        page.append(subtitle)
+
+        switcher = Gtk.StackSwitcher()
+        switcher.set_halign(Gtk.Align.START)
+        switcher.add_css_class("linked")
+        page.append(switcher)
+
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        stack.set_transition_duration(160)
+        switcher.set_stack(stack)
+        page.append(stack)
+
+        general = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        general.set_margin_top(14)
+        general.append(NetFatherWindow._section_title("General"))
+        general_text = Gtk.Label(
+            label="NetFather is focused on a reliable Linux desktop workflow. Application-wide settings will appear here as the corresponding backend services become available.",
+            xalign=0,
+            wrap=True,
+        )
+        general_text.add_css_class("dim-label")
+        general.append(general_text)
+        stack.add_titled(general, "general", "General")
+
+        about = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        about.set_margin_top(14)
+        about.set_margin_bottom(8)
+        about_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        about_card.add_css_class("card")
+        about_card.set_margin_start(2)
+        about_card.set_margin_end(2)
+        about_card.set_margin_top(2)
+        about_card.set_margin_bottom(2)
+
+        app_name = Gtk.Label(label="NetFather", xalign=0)
+        app_name.add_css_class("title-2")
+        about_card.append(app_name)
+
+        version = Gtk.Label(label="Version 0.5.0", xalign=0)
+        version.add_css_class("dim-label")
+        about_card.append(version)
+
+        description = Gtk.Label(
+            label="Linux için yerel ağ cihaz keşfi, izleme, profil, zamanlama ve erişim yönetimi uygulaması.",
+            xalign=0,
+            wrap=True,
+        )
+        about_card.append(description)
+
+        developer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        developer_label = Gtk.Label(label="Developer", xalign=0)
+        developer_label.add_css_class("dim-label")
+        developer.append(developer_label)
+        developer_name = Gtk.Label(label="Praxis1071", xalign=0)
+        developer_name.add_css_class("heading")
+        developer.append(developer_name)
+        about_card.append(developer)
+
+        github = Gtk.LinkButton(uri="https://github.com/Praxis1071", label="GitHub profile")
+        github.set_halign(Gtk.Align.START)
+        about_card.append(github)
+
+        project = Gtk.LinkButton(uri="https://github.com/Praxis1071/NetFather", label="NetFather repository")
+        project.set_halign(Gtk.Align.START)
+        about_card.append(project)
+
+        about.append(about_card)
+        stack.add_titled(about, "about", "About")
+        stack.set_visible_child_name("about")
         return page
+
+    @staticmethod
+    def _section_title(text: str) -> Gtk.Label:
+        label = Gtk.Label(label=text, xalign=0)
+        label.add_css_class("title-2")
+        return label
