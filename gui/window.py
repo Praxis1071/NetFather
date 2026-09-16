@@ -11,15 +11,7 @@ from gui.tasks import BackgroundTaskRunner
 
 
 class NetFatherWindow(Gtk.ApplicationWindow):
-    def __init__(
-        self,
-        app: Gtk.Application,
-        config: Config,
-        database: Database,
-        *,
-        state: ApplicationState,
-        tasks: BackgroundTaskRunner,
-    ) -> None:
+    def __init__(self, app: Gtk.Application, config: Config, database: Database, *, state: ApplicationState, tasks: BackgroundTaskRunner) -> None:
         super().__init__(application=app)
         self.set_title("NetFather")
         self.set_default_size(1200, 760)
@@ -32,23 +24,12 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         self.set_child(root)
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         sidebar.set_size_request(240, -1)
-        sidebar.set_margin_top(24)
-        sidebar.set_margin_bottom(24)
-        sidebar.set_margin_start(16)
-        sidebar.set_margin_end(16)
+        sidebar.set_margin_top(24); sidebar.set_margin_bottom(24); sidebar.set_margin_start(16); sidebar.set_margin_end(16)
         root.append(sidebar)
 
-        brand = Gtk.Label(label="NETFATHER", xalign=0)
-        brand.add_css_class("title-2")
-        sidebar.append(brand)
-        subtitle = Gtk.Label(label="Linux network management", xalign=0)
-        subtitle.add_css_class("dim-label")
-        sidebar.append(subtitle)
-
-        nav = Gtk.ListBox()
-        nav.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        nav.add_css_class("navigation-sidebar")
-        sidebar.append(nav)
+        brand = Gtk.Label(label="NETFATHER", xalign=0); brand.add_css_class("title-2"); sidebar.append(brand)
+        subtitle = Gtk.Label(label="Linux network management", xalign=0); subtitle.add_css_class("dim-label"); sidebar.append(subtitle)
+        nav = Gtk.ListBox(); nav.set_selection_mode(Gtk.SelectionMode.SINGLE); nav.add_css_class("navigation-sidebar"); sidebar.append(nav)
 
         self.stack = Gtk.Stack(hexpand=True, vexpand=True)
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -57,7 +38,7 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         self.pages = {
             "Dashboard": DashboardPage(config, database, state),
             "Discovery": DiscoveryPage(config, database, state, tasks),
-            "Devices": DevicesPage(database),
+            "Devices": DevicesPage(database, state, tasks),
             "Network Topology": PlaceholderPage("Network Topology", "Live network topology will be connected next."),
             "Profiles": PlaceholderPage("Profiles", "Device profiles and access policies will be managed here."),
             "Rules": PlaceholderPage("Rules", "Schedules and policy rules will be managed here."),
@@ -67,15 +48,9 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         }
         for name, page in self.pages.items():
             self.stack.add_named(page, name)
-            row = Gtk.ListBoxRow()
-            label = Gtk.Label(label=name, xalign=0)
-            label.set_margin_top(10)
-            label.set_margin_bottom(10)
-            label.set_margin_start(10)
-            label.set_margin_end(10)
-            row.set_child(label)
-            row.set_name(name)
-            nav.append(row)
+            row = Gtk.ListBoxRow(); row.set_name(name)
+            label = Gtk.Label(label=name, xalign=0); label.set_margin_top(10); label.set_margin_bottom(10); label.set_margin_start(10); label.set_margin_end(10)
+            row.set_child(label); nav.append(row)
         nav.connect("row-selected", self._on_navigation_selected)
         nav.select_row(nav.get_row_at_index(0))
 
