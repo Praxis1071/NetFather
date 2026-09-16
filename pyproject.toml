@@ -30,9 +30,6 @@ Homepage = "https://github.com/Praxis1071/NetFather"
 Releases = "https://github.com/Praxis1071/NetFather/releases"
 Issues = "https://github.com/Praxis1071/NetFather/issues"
 
-[project.scripts]
-netfather = "gui.app:main"
-
 [tool.setuptools]
 include-package-data = false
 packages = ["core", "gui", "network", "models", "manager", "monitor", "scheduler", "firewall"]
