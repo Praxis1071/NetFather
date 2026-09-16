@@ -8,7 +8,11 @@ from gi.repository import Gtk
 
 from core.config import Config
 from core.database import Database
-from gui.pages import DashboardPage, DevicesPage, DiscoveryPage, PlaceholderPage
+from gui.dashboard_page import DashboardPage
+from gui.devices_page import DevicesPage
+from gui.discovery_page import DiscoveryPage
+from gui.events_page import EventsPage
+from gui.monitoring_page import MonitoringPage
 from gui.profiles_page import ProfilesPage
 from gui.rules_page import RulesPage
 from gui.state import ApplicationState
@@ -17,6 +21,8 @@ from gui.topology_page import TopologyPage
 
 
 class NetFatherWindow(Gtk.ApplicationWindow):
+    """Root window with lightweight animated workspace navigation."""
+
     def __init__(self, app: Gtk.Application, config: Config, database: Database, *, state: ApplicationState, tasks: BackgroundTaskRunner) -> None:
         super().__init__(application=app, title="NetFather")
         self.set_default_size(1200, 760)
@@ -29,22 +35,23 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         sidebar.set_selection_mode(Gtk.SelectionMode.SINGLE)
         sidebar.set_size_request(210, -1)
         sidebar.add_css_class("navigation-sidebar")
+
         content = Gtk.Stack()
-        content.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        content.set_transition_duration(160)
+        content.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        content.set_transition_duration(180)
         content.set_hexpand(True)
         content.set_vexpand(True)
 
         pages = {
-            "Dashboard": DashboardPage(config, database, state),
+            "Dashboard": DashboardPage(database, state, tasks),
             "Discovery": DiscoveryPage(config, database, state, tasks),
             "Devices": DevicesPage(database, state, tasks),
             "Network Topology": TopologyPage(database, tasks),
             "Profiles": ProfilesPage(database, tasks),
             "Rules": RulesPage(database, tasks),
-            "Monitoring": PlaceholderPage("Monitoring", "Live traffic and device activity will appear here."),
-            "Events": PlaceholderPage("Events", "Policy and network events will appear here."),
-            "Settings": PlaceholderPage("Settings", "Application settings will be managed here."),
+            "Monitoring": MonitoringPage(database, tasks),
+            "Events": EventsPage(database, tasks),
+            "Settings": self._settings_page(),
         }
         for name, page in pages.items():
             content.add_named(page, name)
@@ -62,3 +69,14 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         root.append(sidebar)
         root.append(content)
         return root
+
+    @staticmethod
+    def _settings_page() -> Gtk.Widget:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.set_margin_top(28); page.set_margin_bottom(28); page.set_margin_start(32); page.set_margin_end(32)
+        title = Gtk.Label(label="Settings", xalign=0); title.add_css_class("title-1"); page.append(title)
+        text = Gtk.Label(
+            label="NetFather is currently focused on a reliable Linux + GTK4 workflow. Advanced application settings will be introduced here as the backend services mature.",
+            xalign=0, wrap=True,
+        ); text.add_css_class("dim-label"); page.append(text)
+        return page
