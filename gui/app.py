@@ -7,13 +7,14 @@ import gi
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from core.config import load_config
 from core.database import Database
 from gui.state import ApplicationState
 from gui.tasks import BackgroundTaskRunner
 from gui.window import NetFatherWindow
+from network.live_presence import LivePresenceService
 
 
 _APP_CSS = """
@@ -91,6 +92,7 @@ class NetFatherApplication(Gtk.Application):
         self.database = None
         self.state = ApplicationState()
         self.tasks = BackgroundTaskRunner()
+        self.live_presence: LivePresenceService | None = None
         self._css_loaded = False
 
     def _load_css(self) -> None:
@@ -108,12 +110,35 @@ class NetFatherApplication(Gtk.Application):
         )
         self._css_loaded = True
 
+    def _on_live_reconciled(self, snapshot: object) -> None:
+        def apply_state() -> bool:
+            self.state.discovery.scanned = getattr(snapshot, "scanned", 0)
+            self.state.discovery.identities = getattr(snapshot, "identities", ())
+            self.state.discovery.error = getattr(snapshot, "error", None)
+            self.state.discovery.status_message = (
+                "Live network update: "
+                f"{getattr(snapshot, 'new_devices', 0)} new, "
+                f"{getattr(snapshot, 'updated_devices', 0)} updated, "
+                f"{getattr(snapshot, 'offline_devices', 0)} offline."
+            )
+            self.state.notify_changed()
+            return GLib.SOURCE_REMOVE
+
+        GLib.idle_add(apply_state)
+
     def do_activate(self) -> None:
         self._load_css()
         if self.config is None:
             self.config = load_config()
             self.database = Database(self.config.database_path)
             self.database.init_db()
+            self.live_presence = LivePresenceService(
+                self.database,
+                interval_seconds=self.config.discovery.live_presence_interval_seconds,
+                on_reconciled=self._on_live_reconciled,
+            )
+            if self.config.discovery.live_presence_enabled:
+                self.live_presence.start()
 
         window = self.props.active_window
         if window is None:
@@ -127,6 +152,8 @@ class NetFatherApplication(Gtk.Application):
         window.present()
 
     def do_shutdown(self) -> None:
+        if self.live_presence is not None:
+            self.live_presence.stop()
         self.tasks.shutdown()
         if self.database is not None:
             self.database.close()
