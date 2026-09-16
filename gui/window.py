@@ -8,6 +8,7 @@ from gi.repository import Gtk
 
 from core.config import Config
 from core.database import Database
+from core.privileges import PrivilegeStatus, detect_privileges
 from gui.dashboard_page import DashboardPage
 from gui.events_page import EventsPage
 from gui.monitoring_page import MonitoringPage
@@ -129,6 +130,7 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         )
         general_text.add_css_class("dim-label")
         general.append(general_text)
+        general.append(NetFatherWindow._privilege_card())
         stack.add_titled(general, "general", "General")
 
         about = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -177,6 +179,53 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         stack.add_titled(about, "about", "About")
         stack.set_visible_child_name("about")
         return page
+
+    @staticmethod
+    def _privilege_card() -> Gtk.Widget:
+        status = detect_privileges()
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("card")
+        card.set_margin_top(4)
+
+        title = Gtk.Label(label="Network capabilities", xalign=0)
+        title.add_css_class("title-2")
+        card.append(title)
+
+        description = Gtk.Label(
+            label="NetFather keeps the GTK interface unprivileged. Elevated access is exposed as a capability for operations that genuinely require it.",
+            xalign=0,
+            wrap=True,
+        )
+        description.add_css_class("dim-label")
+        card.append(description)
+
+        summary = Gtk.Label(label=status.summary, xalign=0)
+        summary.add_css_class("status-ok" if status.can_run_privileged_operations else "status-warning")
+        card.append(summary)
+
+        for label, available in (
+            ("pkexec", status.pkexec_available),
+            ("nftables", status.nft_available),
+            ("iproute2", status.ip_available),
+            ("NetworkManager", status.network_manager_available),
+        ):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            marker = Gtk.Label(label="Available" if available else "Unavailable", xalign=0)
+            marker.add_css_class("status-ok" if available else "status-warning")
+            name = Gtk.Label(label=label, xalign=0)
+            name.set_hexpand(True)
+            row.append(name)
+            row.append(marker)
+            card.append(row)
+
+        note = Gtk.Label(
+            label="Privileged actions will use a narrow system service and polkit authorization instead of relaunching the whole GUI as root.",
+            xalign=0,
+            wrap=True,
+        )
+        note.add_css_class("dim-label")
+        card.append(note)
+        return card
 
     @staticmethod
     def _section_title(text: str) -> Gtk.Label:
