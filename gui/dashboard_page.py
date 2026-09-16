@@ -18,6 +18,7 @@ class MetricCard(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.set_hexpand(True)
         self.add_css_class("card")
+        self.add_css_class("metric-card")
         self.set_margin_top(2)
         self.set_margin_bottom(2)
         self.set_margin_start(2)
@@ -56,6 +57,7 @@ class DashboardPage(Gtk.Box):
         self.tasks = tasks
         self._busy = False
         self._pulse_source: int | None = None
+        self._refresh_source: int | None = None
 
         heading = Gtk.Label(label="Dashboard", xalign=0)
         heading.add_css_class("title-1")
@@ -98,22 +100,30 @@ class DashboardPage(Gtk.Box):
         self.append(activity)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self.refresh_button = Gtk.Button(label="Refresh")
+        self.refresh_button = Gtk.Button(label="Refresh now")
         self.refresh_button.add_css_class("suggested-action")
         self.refresh_button.connect("clicked", lambda _button: self.refresh())
         controls.append(self.refresh_button)
-        self.refresh_status = Gtk.Label(label="Live data refreshes when this workspace is opened.", xalign=0)
+        self.refresh_status = Gtk.Label(label="Live refresh every 5 seconds", xalign=0)
         self.refresh_status.add_css_class("dim-label")
         controls.append(self.refresh_status)
         self.append(controls)
         self.refresh()
+        self._refresh_source = GLib.timeout_add_seconds(5, self._scheduled_refresh)
+
+    def _scheduled_refresh(self) -> bool:
+        if self.get_root() is None:
+            self._refresh_source = None
+            return GLib.SOURCE_REMOVE
+        self.refresh()
+        return GLib.SOURCE_CONTINUE
 
     def refresh(self) -> None:
         if self._busy:
             return
         self._busy = True
         self.refresh_button.set_sensitive(False)
-        self.refresh_status.set_text("Refreshing network state…")
+        self.refresh_status.set_text("Refreshing live network state…")
         self._start_pulse()
         self.tasks.submit(self._load_snapshot, self._loaded, self._failed)
 
@@ -148,14 +158,14 @@ class DashboardPage(Gtk.Box):
             f"Packets: {traffic.packets_sent:,} sent / {traffic.packets_recv:,} received\n"
             f"Errors: {traffic.errors_in + traffic.errors_out:,}  •  Drops: {traffic.drops_in + traffic.drops_out:,}"
         )
-        self.refresh_status.set_text("Updated just now")
+        self.refresh_status.set_text("Live data updated just now")
 
     def _failed(self, error: BaseException) -> None:
         self._busy = False
         self.refresh_button.set_sensitive(True)
         self._stop_pulse()
         self.activity_status.set_text(f"Unable to refresh network state: {error}")
-        self.refresh_status.set_text("Refresh failed")
+        self.refresh_status.set_text("Refresh failed — retrying automatically")
 
     def _start_pulse(self) -> None:
         if self._pulse_source is None:
