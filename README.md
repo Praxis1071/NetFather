@@ -26,8 +26,12 @@ The current implementation includes:
 - shared application state and GTK-safe background task handling;
 - a dashboard control center with live network, device, policy, and traffic summaries;
 - Linux network interface information;
-- passive, active, and hybrid local-network discovery;
+- passive, active, hybrid, and optional deep local-network discovery;
 - Scapy-based ARP discovery;
+- Linux `ip neigh` neighbor-state discovery;
+- optional Nmap TCP/UDP service inventory and service-version detection;
+- optional Nmap OS fingerprinting with a bounded local-network scan;
+- optional per-scan authorization through `pkexec` so the whole GTK application does not run as root;
 - hostname, vendor, device-type, and OS-hint enrichment;
 - stable device identity resolution independent of the current IP;
 - automatic discovery reconciliation through the device manager;
@@ -42,6 +46,23 @@ The current implementation includes:
 - policy, scheduler, firewall, monitoring, and event foundations that are being connected incrementally toward real traffic enforcement.
 
 Real packet-level enforcement is deliberately not presented as complete until it is fully wired, guarded, and integration-tested.
+
+## Discovery modes
+
+The Discovery workspace is intentionally layered:
+
+- **Passive** — read the Linux neighbor table without actively probing the network.
+- **Active ARP** — use Scapy Ethernet/ARP discovery to find local IPv4 hosts that are not already known by the kernel.
+- **Hybrid** — combine passive neighbor state and active ARP discovery, then enrich and reconcile identities.
+- **Deep inventory** — combine the local discovery layers with Nmap service/version discovery and optional TCP/UDP/OS fingerprinting. The deep mode is restricted to private or link-local IPv4 networks and currently refuses networks broader than `/16`.
+
+Deep inventory does not enable Nmap NSE/default scripts. This keeps the feature focused on network inventory rather than vulnerability scanning and avoids turning the normal discovery workflow into an intrusive script runner.
+
+Nmap is optional for the base application. If it is not installed, the normal discovery modes continue to work. For Arch/CachyOS, install it with:
+
+```bash
+sudo pacman -S --needed nmap
+```
 
 ## GTK4 GUI direction
 
@@ -78,11 +99,13 @@ Windows and macOS are not project targets.
 - Scapy
 - SQLAlchemy
 - psutil
+- optional Nmap for deep inventory
+- optional polkit/pkexec for per-scan elevation
 
 For CachyOS / Arch Linux, install the main system dependencies with:
 
 ```bash
-sudo pacman -S --needed python gtk4 python-gobject iproute2 nftables
+sudo pacman -S --needed python gtk4 python-gobject iproute2 nftables nmap polkit
 ```
 
 Then install the Python project in an isolated environment according to your preferred Python workflow. The project dependencies are declared in `pyproject.toml`.
@@ -101,7 +124,7 @@ If the project is installed as a package, the `netfather` entry point also launc
 netfather
 ```
 
-Some network discovery and traffic-enforcement operations require appropriate Linux privileges.
+Some network discovery and traffic-enforcement operations require appropriate Linux privileges. Deep discovery can request authorization only for the Nmap process rather than running the whole GUI as root.
 
 ## Testing
 
@@ -122,12 +145,15 @@ Application State + Background Tasks
    +----------------+----------------+
    |                |                |
 Devices          Discovery        Policies
-   |                |                |
-   +----------------+----------------+
+                    |
+          +---------+---------+
+          |         |         |
+       ip neigh   Scapy     Nmap
+          |         |         |
+          +---------+---------+
                     |
                     v
-             Network Core
-       Identity / Presence / State
+             Identity / Presence
                     |
                     v
              Enforcement
@@ -136,12 +162,14 @@ Devices          Discovery        Policies
 
 The long-term GUI will use GTK4/Libadwaita patterns where they improve adaptive navigation, accessibility, and desktop integration. The current GTK4 stack already uses non-blocking background work and lightweight page transitions.
 
+See `docs/architecture/network-discovery-stack.md` for the discovery design and its future extension points.
+
 ## Development focus
 
 The roadmap is intentionally incremental:
 
 1. application core and stable device identity;
-2. modular and richer network discovery;
+2. layered network discovery with strong local inventory;
 3. live network presence and topology;
 4. polished GTK4/Libadwaita GUI workflows;
 5. reusable device profiles and scheduled rules;
