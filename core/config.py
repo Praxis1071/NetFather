@@ -11,7 +11,7 @@ from core.exceptions import ConfigError
 from core.platform import apply_private_mode, default_config_dir, default_data_dir
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-_VALID_DISCOVERY_MODES = {"passive", "active", "hybrid"}
+_VALID_DISCOVERY_MODES = {"passive", "active", "hybrid", "deep"}
 DEFAULT_CONFIG_DIR = default_config_dir()
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
 DEFAULT_DATA_DIR = default_data_dir()
