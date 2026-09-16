@@ -12,7 +12,7 @@ from threading import Lock
 from typing import Callable
 
 from core.time_utils import utc_now
-from network.discovery import observations_from_hosts, scan_network
+from network.discovery import DiscoveredHost, observations_from_hosts, scan_network
 from network.identity import DeviceIdentity, IdentityResolver
 
 
@@ -23,6 +23,7 @@ class DiscoverySnapshot:
     started_at: datetime
     completed_at: datetime
     scanned: int
+    hosts: tuple[DiscoveredHost, ...] = field(default_factory=tuple)
     identities: tuple[DeviceIdentity, ...] = field(default_factory=tuple)
     error: str | None = None
 
@@ -69,16 +70,13 @@ class DiscoveryService:
         os_detection: bool = False,
         active_timeout_seconds: int | None = None,
     ) -> DiscoverySnapshot:
-        """Run one discovery cycle and reconcile stable identities.
-
-        The service is single-flight: concurrent callers receive a clear
-        RuntimeError instead of starting competing scans.
-        """
+        """Run one discovery cycle and reconcile stable identities."""
         with self._lock:
             if self._running:
                 raise RuntimeError("Discovery taraması zaten çalışıyor.")
             self._running = True
         started = utc_now()
+        snapshot: DiscoverySnapshot
         try:
             hosts = scan_network(
                 timeout_seconds,
@@ -95,6 +93,7 @@ class DiscoveryService:
                 started_at=started,
                 completed_at=utc_now(),
                 scanned=len(hosts),
+                hosts=tuple(hosts),
                 identities=tuple(identities),
             )
         except Exception as exc:
