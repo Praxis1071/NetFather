@@ -1,4 +1,3 @@
-from network.identity import DeviceIdentity
 from gui.state import ApplicationState
 
 
