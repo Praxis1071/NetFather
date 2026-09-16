@@ -2,15 +2,15 @@
 
 NetFather katmanları:
 
-1. **network/** — interface status, passive/active discovery, topology.
-2. **manager/** — persistent device/profile/rule/event CRUD ve PolicyEngine.
-3. **firewall/** — OS-specific enforcement; policy hesaplamaz.
-4. **monitor/** — presence tracker ve traffic telemetry.
-5. **scheduler/** — periyodik policy→firewall sync.
-6. **core/service.py** — OS-native daemon startup helper.
-7. **cli/** ve **tui/** — aynı manager/network katmanlarını kullanan UI'lar.
+1. **gui/** — GTK4 masaüstü uygulaması, navigation ve kullanıcı etkileşimi.
+2. **network/** — Linux interface status, passive/active discovery ve topology verisi.
+3. **manager/** — persistent device/profile/rule/event CRUD ve PolicyEngine.
+4. **firewall/** — Linux nftables enforcement; policy hesaplamaz.
+5. **monitor/** — presence tracking ve traffic telemetry.
+6. **scheduler/** — arka plan discovery/policy → firewall senkronizasyonu için servis katmanı.
+7. **core/** — configuration, database, logging, platform ve Linux service yardımcıları.
 
-Bu ayrım firewall ayrıcalıklarını veri CRUD katmanından ayırır. Discovery sonucu doğrudan firewall komutu üretmez; önce DB kimliği ve PolicyEngine kararı oluşur.
+GTK4 yalnızca presentation/application layer'dır. Ağ keşfi, politika değerlendirmesi ve firewall enforcement widget'ların içine taşınmaz; böylece aynı backend canlı GUI, scheduler ve testler tarafından güvenli şekilde kullanılabilir.
 
 ## Device lifecycle
 
@@ -18,6 +18,14 @@ Bu ayrım firewall ayrıcalıklarını veri CRUD katmanından ayırır. Discover
 
 Online/offline kararı tek bir missed scan ile verilmez; `offline_after_seconds` grace period uygulanır.
 
+## Discovery lifecycle
+
+Discovery arka planda çalıştırılabilir ve GUI ana thread'ini bloke etmemelidir. Sonuçlar tek bir reconciliation akışından DB'ye yazılır; GUI DB/model durumunu yeniler.
+
 ## Database compatibility
 
-v0.4.0 ek kolonları additive/idempotent SQLite migration ile ekler. Var olan device/profile/rule verileri korunur.
+SQLite migration'ları additive/idempotent olmalıdır. Var olan device/profile/rule verileri korunur.
+
+## Platform scope
+
+NetFather yalnız Linux hedefler. Windows/macOS runtime katmanları, platforma özel firewall backend'leri ve eski CLI/TUI UI katmanları artık proje mimarisinin parçası değildir.
