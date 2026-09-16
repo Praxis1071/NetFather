@@ -14,9 +14,7 @@ env/
 *.db-shm
 *.db-wal
 logs/*
-!logs/.gitkeep
 data/*
-!data/.gitkeep
 
 # Environment / secrets
 .env
