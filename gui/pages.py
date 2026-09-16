@@ -8,6 +8,7 @@ from core.config import Config
 from core.database import Database
 from gui.state import ApplicationState
 from gui.tasks import BackgroundTaskRunner
+from manager.device_manager import DeviceManager
 from models.device import Device
 from network.discovery_service import DiscoveryService, DiscoverySnapshot
 from network.interface import get_network_status
@@ -83,7 +84,7 @@ class DiscoveryPage(BasePage):
         self.database = database
         self.state = state
         self.tasks = tasks
-        self.service = DiscoveryService()
+        self.service = DiscoveryService(device_manager=DeviceManager(database))
         self._pulse_source: int | None = None
         self._unsubscribe = self.state.subscribe(self._on_state_changed)
 
@@ -206,11 +207,13 @@ class DiscoveryPage(BasePage):
         self.state.discovery.scanned = snapshot.scanned
         self.state.discovery.identities = snapshot.identities
         self.state.discovery.error = snapshot.error
-        self.state.discovery.status_message = (
-            f"Scan completed: {snapshot.scanned} host(s) observed."
-            if snapshot.error is None
-            else snapshot.error
-        )
+        if snapshot.error is None:
+            self.state.discovery.status_message = (
+                f"Scan completed: {snapshot.scanned} host(s) observed. "
+                f"New {snapshot.new_devices}, updated {snapshot.updated_devices}, offline {snapshot.offline_devices}."
+            )
+        else:
+            self.state.discovery.status_message = snapshot.error
         self.state.notify_changed()
         self._stop_pulse()
         self.last_scan.set_text(f"Completed at {snapshot.completed_at.astimezone().strftime('%H:%M:%S')}")
