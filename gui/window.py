@@ -6,28 +6,45 @@ from gi.repository import Gtk
 from core.config import Config
 from core.database import Database
 from gui.pages import DashboardPage, DevicesPage, DiscoveryPage, PlaceholderPage
+from gui.state import ApplicationState
+from gui.tasks import BackgroundTaskRunner
 
 
 class NetFatherWindow(Gtk.ApplicationWindow):
-    def __init__(self, app: Gtk.Application, config: Config, database: Database) -> None:
+    def __init__(
+        self,
+        app: Gtk.Application,
+        config: Config,
+        database: Database,
+        *,
+        state: ApplicationState,
+        tasks: BackgroundTaskRunner,
+    ) -> None:
         super().__init__(application=app)
         self.set_title("NetFather")
         self.set_default_size(1200, 760)
         self.config = config
         self.database = database
+        self.state = state
+        self.tasks = tasks
 
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self.set_child(root)
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         sidebar.set_size_request(240, -1)
-        sidebar.set_margin_top(24); sidebar.set_margin_bottom(24); sidebar.set_margin_start(16); sidebar.set_margin_end(16)
+        sidebar.set_margin_top(24)
+        sidebar.set_margin_bottom(24)
+        sidebar.set_margin_start(16)
+        sidebar.set_margin_end(16)
         root.append(sidebar)
+
         brand = Gtk.Label(label="NETFATHER", xalign=0)
         brand.add_css_class("title-2")
         sidebar.append(brand)
         subtitle = Gtk.Label(label="Linux network management", xalign=0)
         subtitle.add_css_class("dim-label")
         sidebar.append(subtitle)
+
         nav = Gtk.ListBox()
         nav.set_selection_mode(Gtk.SelectionMode.SINGLE)
         nav.add_css_class("navigation-sidebar")
@@ -51,7 +68,10 @@ class NetFatherWindow(Gtk.ApplicationWindow):
             self.stack.add_named(page, name)
             row = Gtk.ListBoxRow()
             label = Gtk.Label(label=name, xalign=0)
-            label.set_margin_top(10); label.set_margin_bottom(10); label.set_margin_start(10); label.set_margin_end(10)
+            label.set_margin_top(10)
+            label.set_margin_bottom(10)
+            label.set_margin_start(10)
+            label.set_margin_end(10)
             row.set_child(label)
             row.set_name(name)
             nav.append(row)
