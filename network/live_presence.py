@@ -69,7 +69,10 @@ class LivePresenceService:
         self._reconcile()
 
     def _reconcile(self) -> None:
-        if self._stopped or self.discovery.running:
+        if self._stopped:
+            return
+        if self.discovery.running:
+            self._schedule_periodic_safety_scan()
             return
         snapshot = self.discovery.scan(
             timeout_seconds=3,
