@@ -1,9 +1,8 @@
 """Stable device identity resolution from network observations.
 
-IP addresses are treated as mutable observations, never as the identity of a
-physical/logical device. The resolver currently uses MAC as its strongest
-local-network identity key and keeps a confidence score for future discovery
-sources.
+IP addresses are mutable observations, never the identity of a device. MAC is
+the strongest local-network identity key currently available; richer sources
+can be added without changing the public identity model.
 """
 from __future__ import annotations
 
@@ -12,6 +11,19 @@ from datetime import datetime
 from typing import Iterable
 
 from core.time_utils import utc_now
+
+
+def normalize_mac(mac: str) -> str:
+    """Return a canonical uppercase colon-separated MAC address."""
+    value = mac.strip().upper().replace("-", ":")
+    parts = value.split(":")
+    if len(parts) != 6 or any(len(part) != 2 for part in parts):
+        raise ValueError(f"Geçersiz MAC adresi: {mac!r}")
+    try:
+        [int(part, 16) for part in parts]
+    except ValueError as exc:
+        raise ValueError(f"Geçersiz MAC adresi: {mac!r}") from exc
+    return ":".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,12 +42,9 @@ class DeviceObservation:
     observed_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        mac = self.mac.strip().upper().replace("-", ":")
-        if not mac:
-            raise ValueError("MAC adresi boş olamaz.")
-        object.__setattr__(self, "mac", mac)
-        confidence = max(0.0, min(1.0, float(self.confidence)))
-        object.__setattr__(self, "confidence", confidence)
+        object.__setattr__(self, "mac", normalize_mac(self.mac))
+        object.__setattr__(self, "confidence", max(0.0, min(1.0, float(self.confidence))))
+        object.__setattr__(self, "source", self.source.strip().lower() or "unknown")
 
 
 @dataclass(slots=True)
@@ -43,7 +52,9 @@ class DeviceIdentity:
     """Aggregated identity independent from the device's current IP."""
 
     mac: str
+    current_ip: str | None = None
     ips: set[str] = field(default_factory=set)
+    ip_last_seen: dict[str, datetime] = field(default_factory=dict)
     hostnames: set[str] = field(default_factory=set)
     vendors: set[str] = field(default_factory=set)
     interfaces: set[str] = field(default_factory=set)
@@ -55,23 +66,30 @@ class DeviceIdentity:
     online: bool = True
     confidence: float = 0.0
 
-    @property
-    def current_ip(self) -> str | None:
-        return next(iter(self.ips), None)
-
     def observe(self, observation: DeviceObservation) -> None:
         if observation.mac != self.mac:
             raise ValueError("Observation MAC kimlik MAC'i ile eşleşmiyor.")
-        self.ips.update(filter(None, (observation.ip,)))
+        if observation.ip:
+            self.ips.add(observation.ip)
+            self.ip_last_seen[observation.ip] = observation.observed_at
+            if self.current_ip is None:
+                self.current_ip = observation.ip
+            elif self.ip_last_seen.get(self.current_ip, datetime.min) <= observation.observed_at:
+                self.current_ip = observation.ip
         self.hostnames.update(filter(None, (observation.hostname,)))
         self.vendors.update(filter(None, (observation.vendor,)))
         self.interfaces.update(filter(None, (observation.interface,)))
         self.device_types.update(filter(None, (observation.device_type,)))
         self.os_hints.update(filter(None, (observation.os_hint,)))
         self.sources.add(observation.source)
-        self.last_seen = observation.observed_at
+        self.last_seen = max(self.last_seen, observation.observed_at)
         self.online = True
         self.confidence = max(self.confidence, observation.confidence)
+
+    @property
+    def previous_ips(self) -> tuple[str, ...]:
+        """Return known IPs except the currently observed address."""
+        return tuple(sorted(ip for ip in self.ips if ip != self.current_ip))
 
 
 class IdentityResolver:
@@ -94,14 +112,14 @@ class IdentityResolver:
         return identity
 
     def mark_offline(self, mac: str, *, seen_before: datetime | None = None) -> None:
-        identity = self._identities.get(mac.strip().upper().replace("-", ":"))
+        identity = self._identities.get(normalize_mac(mac))
         if identity is None:
             return
         if seen_before is None or identity.last_seen <= seen_before:
             identity.online = False
 
     def get(self, mac: str) -> DeviceIdentity | None:
-        return self._identities.get(mac.strip().upper().replace("-", ":"))
+        return self._identities.get(normalize_mac(mac))
 
     def all(self) -> tuple[DeviceIdentity, ...]:
         return tuple(self._identities.values())
