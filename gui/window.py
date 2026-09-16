@@ -6,15 +6,13 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
-from core.config import Config
+from core.config import Config, save_config
 from core.database import Database
-from core.privileges import PrivilegeStatus, detect_privileges
+from core.privileges import detect_privileges
 from gui.dashboard_page import DashboardPage
 from gui.events_page import EventsPage
 from gui.monitoring_page import MonitoringPage
 from gui.pages import DevicesPage, DiscoveryPage
-from gui.profiles_page import ProfilesPage
-from gui.rules_page import RulesPage
 from gui.state import ApplicationState
 from gui.tasks import BackgroundTaskRunner
 from gui.topology_page import TopologyPage
@@ -62,7 +60,7 @@ class NetFatherWindow(Gtk.ApplicationWindow):
             "Rules": RulesPage(database, tasks),
             "Monitoring": MonitoringPage(database, tasks),
             "Events": EventsPage(database, tasks),
-            "Settings": self._settings_page(),
+            "Settings": self._settings_page(config),
         }
         for name, page in pages.items():
             scroller = Gtk.ScrolledWindow()
@@ -89,8 +87,7 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         root.append(content)
         return root
 
-    @staticmethod
-    def _settings_page() -> Gtk.Widget:
+    def _settings_page(self, config: Config) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         page.set_margin_top(28)
         page.set_margin_bottom(28)
@@ -122,15 +119,16 @@ class NetFatherWindow(Gtk.ApplicationWindow):
 
         general = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         general.set_margin_top(14)
-        general.append(NetFatherWindow._section_title("General"))
+        general.append(self._section_title("General"))
         general_text = Gtk.Label(
-            label="NetFather is focused on a reliable Linux desktop workflow. Application-wide settings will appear here as the corresponding backend services become available.",
+            label="NetFather continuously watches the Linux neighbor table when live presence monitoring is enabled. Changes trigger a debounced discovery reconciliation so device state stays current without keeping a packet sniffer running.",
             xalign=0,
             wrap=True,
         )
         general_text.add_css_class("dim-label")
         general.append(general_text)
-        general.append(NetFatherWindow._privilege_card())
+        general.append(self._live_presence_card(config))
+        general.append(self._privilege_card())
         stack.add_titled(general, "general", "General")
 
         about = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -177,8 +175,67 @@ class NetFatherWindow(Gtk.ApplicationWindow):
 
         about.append(about_card)
         stack.add_titled(about, "about", "About")
-        stack.set_visible_child_name("about")
+        stack.set_visible_child_name("general")
         return page
+
+    @staticmethod
+    def _live_presence_card(config: Config) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        card.add_css_class("card")
+
+        title = Gtk.Label(label="Live network presence", xalign=0)
+        title.add_css_class("title-2")
+        card.append(title)
+
+        description = Gtk.Label(
+            label="Uses Linux neighbor-table notifications as the fast path and periodic hybrid discovery as a safety net. It does not require root and does not run a continuous packet capture.",
+            xalign=0,
+            wrap=True,
+        )
+        description.add_css_class("dim-label")
+        card.append(description)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        label = Gtk.Label(label="Monitor network presence automatically", xalign=0)
+        label.set_hexpand(True)
+        row.append(label)
+        enabled = Gtk.Switch()
+        enabled.set_active(config.discovery.live_presence_enabled)
+        row.append(enabled)
+        card.append(row)
+
+        interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        interval_label = Gtk.Label(label="Safety discovery interval (seconds)", xalign=0)
+        interval_label.set_hexpand(True)
+        interval_row.append(interval_label)
+        interval = Gtk.SpinButton.new_with_range(3, 300, 1)
+        interval.set_value(config.discovery.live_presence_interval_seconds)
+        interval_row.append(interval)
+        card.append(interval_row)
+
+        status = Gtk.Label(xalign=0, wrap=True)
+        status.add_css_class("dim-label")
+        card.append(status)
+
+        def apply_settings(_widget: Gtk.Widget) -> None:
+            config.discovery.live_presence_enabled = enabled.get_active()
+            config.discovery.live_presence_interval_seconds = int(interval.get_value())
+            save_config(config)
+            app = self.get_application()
+            service = getattr(app, "live_presence", None)
+            if service is not None:
+                service.interval_seconds = max(3, config.discovery.live_presence_interval_seconds)
+                if config.discovery.live_presence_enabled:
+                    service.start()
+                    status.set_text("Live presence monitoring is enabled.")
+                else:
+                    service.stop()
+                    status.set_text("Live presence monitoring is disabled.")
+
+        enabled.connect("state-set", lambda *_args: apply_settings(enabled) or False)
+        interval.connect("value-changed", apply_settings)
+        status.set_text("Enabled" if enabled.get_active() else "Disabled")
+        return card
 
     @staticmethod
     def _privilege_card() -> Gtk.Widget:
