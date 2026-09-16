@@ -4,28 +4,16 @@
 
 `[firewall].enforcement_enabled = false`.
 
-```bash
-netfather firewall sync
-```
-
-yalnız preview/dry-run üretir. Gerçek işlem:
-
-```bash
-netfather firewall sync --apply
-```
+GTK4 uygulaması policy durumunu gösterebilir ve enforcement durumunu yönetebilir. Gerçek trafik değişikliği yalnızca açıkça etkinleştirilmiş Linux firewall enforcement üzerinden yapılır.
 
 ## Linux nftables
 
-NetFather yalnız `table inet netfather` oluşturur. `input`, `output` ve `forward` chain'lerinde blocked device IPv4 set'ini uygular. Yeni ruleset önce `nft -c` ile doğrulanır. Apply başarısız olursa mevcut NetFather table backup'ı geri yüklenmeye çalışılır.
-
-## Windows
-
-Kurallar Defender Firewall içinde `NetFather` group'unda inbound/outbound RemoteAddress block olarak oluşturulur. Rollback yalnız bu group'u kaldırır.
-
-## macOS PF
-
-Kurallar `com.apple/netfather` anchor'ına yüklenir. Sistem PF konfigürasyonunun bu anchor namespace'ini çağırması gerekir; macOS sürüm/kurulumuna göre admin doğrulaması önerilir.
+NetFather yalnız kendi `inet netfather` table'ını yönetir. `input`, `output` ve `forward` chain'lerinde blocked device IPv4 set'i uygulanır. Yeni ruleset önce `nft -c` ile doğrulanır. Apply başarısız olursa NetFather'ın önceki table durumu geri yüklenmeye çalışılır.
 
 ## Policy
 
-Profile `blocked` veya aktif `block` rule → BLOCK. Aktif block, allow'dan önceliklidir. IP'si olmayan cihaz firewall target olamaz ama policy durumu DB/TUI'da gösterilir.
+Profile `blocked` veya aktif `block` rule → BLOCK. Aktif block, allow'dan önceliklidir. IP'si olmayan cihaz firewall target olamaz; ancak policy durumu GUI ve event kayıtlarında tutulur.
+
+## Scope
+
+Firewall katmanı yalnız Linux/nftables içindir. Windows Defender Firewall, macOS PF ve eski CLI firewall komutları desteklenmez.
