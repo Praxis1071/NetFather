@@ -8,6 +8,7 @@ from core.database import Database
 from gui.pages import DashboardPage, DevicesPage, DiscoveryPage, PlaceholderPage
 from gui.state import ApplicationState
 from gui.tasks import BackgroundTaskRunner
+from gui.topology_page import TopologyPage
 
 
 class NetFatherWindow(Gtk.ApplicationWindow):
@@ -39,7 +40,7 @@ class NetFatherWindow(Gtk.ApplicationWindow):
             "Dashboard": DashboardPage(config, database, state),
             "Discovery": DiscoveryPage(config, database, state, tasks),
             "Devices": DevicesPage(database, state, tasks),
-            "Network Topology": PlaceholderPage("Network Topology", "Live network topology will be connected next."),
+            "Network Topology": TopologyPage(database, tasks),
             "Profiles": PlaceholderPage("Profiles", "Device profiles and access policies will be managed here."),
             "Rules": PlaceholderPage("Rules", "Schedules and policy rules will be managed here."),
             "Monitoring": PlaceholderPage("Monitoring", "Live traffic and device activity will appear here."),
