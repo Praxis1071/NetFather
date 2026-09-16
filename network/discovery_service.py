@@ -1,19 +1,22 @@
 """Application-facing discovery service.
 
-This module keeps network discovery independent from GTK widgets. A scan runs
-synchronously in the caller's worker thread, then the service reconciles the
-observations into stable identities and exposes a compact snapshot to the UI.
+Discovery stays independent from GTK widgets. A scan runs in the caller's
+worker thread, then observations are resolved into stable identities and can
+be persisted through the device manager.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Lock
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from core.time_utils import utc_now
 from network.discovery import DiscoveredHost, observations_from_hosts, scan_network
 from network.identity import DeviceIdentity, IdentityResolver
+
+if TYPE_CHECKING:
+    from manager.device_manager import DeviceManager
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,14 +28,22 @@ class DiscoverySnapshot:
     scanned: int
     hosts: tuple[DiscoveredHost, ...] = field(default_factory=tuple)
     identities: tuple[DeviceIdentity, ...] = field(default_factory=tuple)
+    new_devices: int = 0
+    updated_devices: int = 0
+    offline_devices: int = 0
     error: str | None = None
 
 
 class DiscoveryService:
-    """Coordinate discovery, identity reconciliation and state notifications."""
+    """Coordinate discovery, identity resolution and device persistence."""
 
-    def __init__(self, resolver: IdentityResolver | None = None) -> None:
+    def __init__(
+        self,
+        resolver: IdentityResolver | None = None,
+        device_manager: DeviceManager | None = None,
+    ) -> None:
         self.resolver = resolver or IdentityResolver()
+        self.device_manager = device_manager
         self._lock = Lock()
         self._running = False
         self._snapshot: DiscoverySnapshot | None = None
@@ -89,12 +100,21 @@ class DiscoveryService:
             )
             observations = observations_from_hosts(hosts)
             identities = self.resolver.reconcile(observations)
+            new_devices = updated_devices = offline_devices = 0
+            if self.device_manager is not None:
+                new_devices, updated_devices, offline_devices = self.device_manager.reconcile_discovery(
+                    hosts,
+                    auto_register=True,
+                )
             snapshot = DiscoverySnapshot(
                 started_at=started,
                 completed_at=utc_now(),
                 scanned=len(hosts),
                 hosts=tuple(hosts),
                 identities=tuple(identities),
+                new_devices=new_devices,
+                updated_devices=updated_devices,
+                offline_devices=offline_devices,
             )
         except Exception as exc:
             snapshot = DiscoverySnapshot(
