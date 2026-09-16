@@ -33,15 +33,15 @@ class DiscoverySnapshot:
     offline_devices: int = 0
     error: str | None = None
 
+    @property
+    def deep_hosts(self) -> tuple[DiscoveredHost, ...]:
+        return tuple(host for host in self.hosts if host.scan_method == "nmap")
+
 
 class DiscoveryService:
     """Coordinate discovery, identity resolution and device persistence."""
 
-    def __init__(
-        self,
-        resolver: IdentityResolver | None = None,
-        device_manager: DeviceManager | None = None,
-    ) -> None:
+    def __init__(self, resolver: IdentityResolver | None = None, device_manager: DeviceManager | None = None) -> None:
         self.resolver = resolver or IdentityResolver()
         self.device_manager = device_manager
         self._lock = Lock()
@@ -61,13 +61,11 @@ class DiscoveryService:
 
     def subscribe(self, callback: Callable[[DiscoverySnapshot], None]) -> Callable[[], None]:
         self._listeners.append(callback)
-
         def unsubscribe() -> None:
             try:
                 self._listeners.remove(callback)
             except ValueError:
                 pass
-
         return unsubscribe
 
     def scan(
@@ -80,6 +78,10 @@ class DiscoveryService:
         vendor_detection: bool = True,
         os_detection: bool = False,
         active_timeout_seconds: int | None = None,
+        deep_udp: bool = True,
+        deep_versions: bool = True,
+        deep_os: bool = True,
+        deep_top_ports: int = 100,
     ) -> DiscoverySnapshot:
         """Run one discovery cycle and reconcile stable identities."""
         with self._lock:
@@ -97,15 +99,16 @@ class DiscoveryService:
                 vendor_detection=vendor_detection,
                 os_detection=os_detection,
                 active_timeout_seconds=active_timeout_seconds,
+                deep_udp=deep_udp,
+                deep_versions=deep_versions,
+                deep_os=deep_os,
+                deep_top_ports=deep_top_ports,
             )
             observations = observations_from_hosts(hosts)
             identities = self.resolver.reconcile(observations)
             new_devices = updated_devices = offline_devices = 0
             if self.device_manager is not None:
-                new_devices, updated_devices, offline_devices = self.device_manager.reconcile_discovery(
-                    hosts,
-                    auto_register=True,
-                )
+                new_devices, updated_devices, offline_devices = self.device_manager.reconcile_discovery(hosts, auto_register=True)
             snapshot = DiscoverySnapshot(
                 started_at=started,
                 completed_at=utc_now(),
@@ -117,13 +120,7 @@ class DiscoveryService:
                 offline_devices=offline_devices,
             )
         except Exception as exc:
-            snapshot = DiscoverySnapshot(
-                started_at=started,
-                completed_at=utc_now(),
-                scanned=0,
-                identities=self.resolver.all(),
-                error=str(exc),
-            )
+            snapshot = DiscoverySnapshot(started_at=started, completed_at=utc_now(), scanned=0, identities=self.resolver.all(), error=str(exc))
         finally:
             with self._lock:
                 self._running = False
