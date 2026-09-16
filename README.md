@@ -22,25 +22,30 @@ NetFather 0.5.0 is in active GTK4 application development.
 
 The current implementation includes:
 
-- GTK4 application shell and navigation;
-- shared application state and background task handling;
+- GTK4 application shell with animated workspace navigation;
+- shared application state and GTK-safe background task handling;
+- a dashboard control center with live network, device, policy, and traffic summaries;
 - Linux network interface information;
 - passive, active, and hybrid local-network discovery;
 - Scapy-based ARP discovery;
 - hostname, vendor, device-type, and OS-hint enrichment;
 - stable device identity resolution independent of the current IP;
 - automatic discovery reconciliation through the device manager;
-- a functional GTK4 Network Discovery workspace;
-- a functional GTK4 Devices workspace with device details, editing, refresh, and deletion;
+- functional GTK4 Network Discovery and Devices workspaces;
+- live gateway-centered Network Topology workspace;
+- Profiles and Rules workspaces connected to the existing backend managers;
+- a shared application Policy Service for effective policy snapshots;
+- live GTK4 Monitoring workspace backed by Linux interface counters;
+- GTK4 Events workspace backed by the persistent audit/event history;
 - SQLite persistence through SQLAlchemy;
 - Linux nftables firewall backend;
-- profile, rule, policy, monitoring, scheduler, and event foundations that are being connected to the GUI incrementally.
+- policy, scheduler, firewall, monitoring, and event foundations that are being connected incrementally toward real traffic enforcement.
 
-The Dashboard, Discovery, and Devices pages are connected to the backend. Network Topology, Profiles, Rules, Monitoring, Events, and Settings are being implemented incrementally.
+Real packet-level enforcement is deliberately not presented as complete until it is fully wired, guarded, and integration-tested.
 
 ## GTK4 GUI direction
 
-The application UI is intentionally being built around GTK4 with a clean, user-friendly desktop experience.
+The application UI is being built as a clean, user-friendly desktop control center.
 
 The target is:
 
@@ -49,9 +54,10 @@ The target is:
 - polished and visually consistent;
 - responsive during scans and other long-running operations;
 - lightly animated where animation improves feedback;
+- adaptive to different window sizes as the UI matures;
 - free of emoji-based device or status indicators.
 
-The GUI remains a presentation layer. Discovery, device identity, policy evaluation, persistence, and network enforcement stay in the reusable backend instead of being duplicated inside GTK widgets.
+The GUI remains a presentation layer. Discovery, device identity, policy evaluation, persistence, and network enforcement stay in reusable backend services instead of being duplicated inside GTK widgets.
 
 ## Supported platform
 
@@ -108,49 +114,45 @@ python -m pytest -q
 ## Architecture
 
 ```text
-GTK4 / Libadwaita GUI
-          |
-          v
-   Application State
-          |
-   +------+------+----------------+
-   |             |                |
-Devices      Discovery         Policies
-   |             |                |
-   +-------------+----------------+
-                 |
-            Network Core
-                 |
-       +---------+---------+
-       |                   |
-   Identity            Presence
-       |                   |
-       +---------+---------+
-                 |
-            Enforcement
-                 |
-              nftables
+GTK4 GUI
+   |
+   v
+Application State + Background Tasks
+   |
+   +----------------+----------------+
+   |                |                |
+Devices          Discovery        Policies
+   |                |                |
+   +----------------+----------------+
+                    |
+                    v
+             Network Core
+       Identity / Presence / State
+                    |
+                    v
+             Enforcement
+          nftables / tc / service
 ```
 
-The long-term architecture separates the GTK4 presentation layer from the network and policy core. Background operations must not block the GTK main thread.
+The long-term GUI will use GTK4/Libadwaita patterns where they improve adaptive navigation, accessibility, and desktop integration. The current GTK4 stack already uses non-blocking background work and lightweight page transitions.
 
 ## Development focus
 
-Current development is intentionally **GUI-first**. New user-facing functionality is implemented in GTK4 and connected to the existing backend services.
+The roadmap is intentionally incremental:
 
-The immediate progression is:
+1. application core and stable device identity;
+2. modular and richer network discovery;
+3. live network presence and topology;
+4. polished GTK4/Libadwaita GUI workflows;
+5. reusable device profiles and scheduled rules;
+6. safe real nftables enforcement;
+7. traffic monitoring and accounting;
+8. bandwidth control with Linux `tc`;
+9. privileged-service separation and D-Bus integration;
+10. security, recovery, integration testing, and packaging.
 
-1. complete the GTK4 application core;
-2. finish device management and identity presentation;
-3. build live Network Topology;
-4. connect Profiles and Rules;
-5. connect Monitoring and Events;
-6. integrate real nftables policy enforcement into the GUI workflow;
-7. add traffic shaping and deeper live network telemetry;
-8. harden the Linux service, security, recovery, testing, packaging, and release workflow.
-
-CLI and TUI interfaces are retired and are **not active development targets**.
+The CLI and TUI are retired development targets and should not be reintroduced unless the project direction is explicitly changed.
 
 ## License
 
-NetFather is licensed under the MIT License.
+MIT
