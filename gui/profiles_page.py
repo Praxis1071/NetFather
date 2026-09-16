@@ -21,17 +21,16 @@ class ProfilesPage(Gtk.Box):
         self.set_margin_bottom(28)
         self.set_margin_start(32)
         self.set_margin_end(32)
-        self.database = database
-        self.tasks = tasks
         self.profile_manager = ProfileManager(database)
         self.device_manager = DeviceManager(database)
+        self.tasks = tasks
         self._busy = False
 
         heading = Gtk.Label(label="Profiles", xalign=0)
         heading.add_css_class("title-1")
         self.append(heading)
         subtitle = Gtk.Label(
-            label="Assign an access mode to a managed device. Profiles are enforced later by the policy layer.",
+            label="Assign an access mode to a managed device. Profiles are enforced by the policy layer.",
             xalign=0,
             wrap=True,
         )
@@ -83,31 +82,18 @@ class ProfilesPage(Gtk.Box):
         self._busy = False
         self.refresh_button.set_sensitive(True)
         self.create_button.set_sensitive(True)
-        names = [device.name for device in devices]
-        self.device = self._replace_dropdown(self.device, names or ["No devices"])
+        values = [device.name for device in devices] or ["No devices"]
+        self.device.set_model(Gtk.StringList.new(values))
+        self.device.set_selected(0)
         while (child := self.list_box.get_first_child()) is not None:
             self.list_box.remove(child)
         for profile in profiles:
             self.list_box.append(self._profile_row(profile))
         self.status.set_text(f"{len(profiles)} profiles | {len(devices)} devices")
 
-    @staticmethod
-    def _replace_dropdown(old: Gtk.DropDown, values: list[str]) -> Gtk.DropDown:
-        parent = old.get_parent()
-        dropdown = Gtk.DropDown.new_from_strings(values)
-        dropdown.set_hexpand(True)
-        if parent is not None:
-            position = 0
-            child = parent.get_first_child()
-            while child is not None and child is not old:
-                position += 1
-                child = child.get_next_sibling()
-            parent.remove(old)
-            parent.insert_child_after(dropdown, parent.get_first_child() if position else None)
-        return dropdown
-
     def create_profile(self) -> None:
-        device_name = self.device.get_selected_item().get_string() if self.device.get_selected_item() else ""
+        selected = self.device.get_selected_item()
+        device_name = selected.get_string() if selected else ""
         name = self.name_entry.get_text().strip()
         if not device_name or device_name == "No devices" or not name:
             self.status.set_text("Select a device and enter a profile name.")
