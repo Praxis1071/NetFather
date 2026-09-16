@@ -4,6 +4,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+from network.identity import DeviceIdentity
+
+
+@dataclass(slots=True)
+class DiscoveryState:
+    """UI-safe discovery state; contains no GTK objects."""
+
+    running: bool = False
+    mode: str = "hybrid"
+    subnet: str = ""
+    hostname_resolution: bool = False
+    vendor_detection: bool = True
+    os_detection: bool = False
+    timeout_seconds: int = 5
+    active_timeout_seconds: int | None = None
+    scanned: int = 0
+    identities: tuple[DeviceIdentity, ...] = field(default_factory=tuple)
+    error: str | None = None
+    status_message: str = "Ready"
+
 
 @dataclass(slots=True)
 class NetworkState:
@@ -20,14 +40,10 @@ class NetworkState:
 
 @dataclass(slots=True)
 class ApplicationState:
-    """Central application state with lightweight change notifications.
-
-    The state object contains plain Python data only. GTK widgets must not be
-    stored here, which keeps the core state independent from the GTK view
-    layer and makes it safe to test without starting a graphical session.
-    """
+    """Central application state with lightweight change notifications."""
 
     network: NetworkState = field(default_factory=NetworkState)
+    discovery: DiscoveryState = field(default_factory=DiscoveryState)
     _listeners: list[Callable[[], None]] = field(default_factory=list, repr=False)
 
     def subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:

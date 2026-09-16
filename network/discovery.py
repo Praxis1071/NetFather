@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from core.logger import get_logger
 from network.device import lookup_vendor
+from network.identity import DeviceObservation
 from network.interface import get_network_status
 
 log = get_logger("network.discovery")
@@ -200,6 +201,32 @@ def _enrich(hosts: list[DiscoveredHost], *, hostname_resolution: bool, vendor_de
         if not host.device_type:
             host.device_type = _guess_device_type(host)
     return hosts
+
+
+def observations_from_hosts(hosts: list[DiscoveredHost]) -> list[DeviceObservation]:
+    """Convert discovery records into identity observations with source confidence."""
+    observations: list[DeviceObservation] = []
+    for host in hosts:
+        if not host.mac:
+            continue
+        source = host.source.strip().lower() or "unknown"
+        confidence = 0.95 if "active" in source else 0.8
+        if host.hostname:
+            confidence = min(1.0, confidence + 0.03)
+        if host.vendor:
+            confidence = min(1.0, confidence + 0.02)
+        observations.append(DeviceObservation(
+            mac=host.mac,
+            ip=host.ip,
+            hostname=host.hostname,
+            vendor=host.vendor,
+            interface=host.interface,
+            device_type=host.device_type,
+            os_hint=host.os_hint,
+            source=source,
+            confidence=confidence,
+        ))
+    return observations
 
 
 def scan_network(timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT, *, mode: str = "passive", subnet: str | None = None, hostname_resolution: bool = False, vendor_detection: bool = True, os_detection: bool = False, active_timeout_seconds: int | None = None) -> list[DiscoveredHost]:
