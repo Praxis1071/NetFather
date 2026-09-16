@@ -207,10 +207,18 @@ def _probe_os_hint(ip: str, timeout: float = 0.35) -> str | None:
         return None
 
 
-def _apply_deep_scan(hosts: list[DiscoveredHost], subnet: str) -> tuple[list[DiscoveredHost], tuple[str, ...]]:
+def _apply_deep_scan(
+    hosts: list[DiscoveredHost],
+    subnet: str,
+    *,
+    include_udp: bool,
+    include_os: bool,
+    include_versions: bool,
+    top_ports: int,
+) -> tuple[list[DiscoveredHost], tuple[str, ...]]:
     try:
         from network.deep_scan import run_deep_scan
-        report = run_deep_scan(subnet, include_udp=True, include_os=True, include_versions=True)
+        report = run_deep_scan(subnet, include_udp=include_udp, include_os=include_os, include_versions=include_versions, top_ports=top_ports)
     except ValueError as exc:
         return hosts, (str(exc),)
     except Exception as exc:
@@ -268,7 +276,20 @@ def observations_from_hosts(hosts: list[DiscoveredHost]) -> list[DeviceObservati
     return observations
 
 
-def scan_network(timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT, *, mode: str = "passive", subnet: str | None = None, hostname_resolution: bool = False, vendor_detection: bool = True, os_detection: bool = False, active_timeout_seconds: int | None = None) -> list[DiscoveredHost]:
+def scan_network(
+    timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT,
+    *,
+    mode: str = "passive",
+    subnet: str | None = None,
+    hostname_resolution: bool = False,
+    vendor_detection: bool = True,
+    os_detection: bool = False,
+    active_timeout_seconds: int | None = None,
+    deep_udp: bool = True,
+    deep_versions: bool = True,
+    deep_os: bool = True,
+    deep_top_ports: int = 100,
+) -> list[DiscoveredHost]:
     """Discover local IPv4 hosts using layered Linux discovery and optional deep Nmap inventory."""
     normalized_mode = mode.strip().lower()
     if normalized_mode not in {"passive", "active", "hybrid", "deep"}:
@@ -284,7 +305,7 @@ def scan_network(timeout_seconds: int = _COMMAND_TIMEOUT_SECONDS_DEFAULT, *, mod
         if normalized_mode == "deep":
             cidr = subnet or infer_local_subnet()
             if cidr:
-                hosts, warnings = _apply_deep_scan(hosts, cidr)
+                hosts, warnings = _apply_deep_scan(hosts, cidr, include_udp=deep_udp, include_os=deep_os, include_versions=deep_versions, top_ports=deep_top_ports)
                 for warning in warnings:
                     log.warning("%s", warning)
         return _enrich(hosts, hostname_resolution=hostname_resolution, vendor_detection=vendor_detection, os_detection=os_detection)
