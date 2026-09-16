@@ -280,11 +280,6 @@ class DiscoveryPage(BasePage):
             self._pulse_source = None
         self.progress.set_fraction(1.0 if not self.state.discovery.error else 0.0)
 
-    def dispose(self) -> None:
-        self._stop_pulse()
-        self._unsubscribe()
-        super().dispose()
-
 
 class DevicesPage(BasePage):
     def __init__(self, database: Database) -> None:
