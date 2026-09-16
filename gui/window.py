@@ -52,10 +52,11 @@ class NetFatherWindow(Gtk.ApplicationWindow):
 
         self.stack = Gtk.Stack(hexpand=True, vexpand=True)
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(160)
         root.append(self.stack)
         self.pages = {
-            "Dashboard": DashboardPage(config, database),
-            "Discovery": DiscoveryPage(config, database),
+            "Dashboard": DashboardPage(config, database, state),
+            "Discovery": DiscoveryPage(config, database, state, tasks),
             "Devices": DevicesPage(database),
             "Network Topology": PlaceholderPage("Network Topology", "Live network topology will be connected next."),
             "Profiles": PlaceholderPage("Profiles", "Device profiles and access policies will be managed here."),
