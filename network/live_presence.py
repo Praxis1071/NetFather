@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from typing import Callable
 
 from core.database import Database
@@ -64,6 +63,7 @@ class LivePresenceService:
     def _reconcile(self) -> None:
         with self._lock:
             self._pending = False
+            self._timer = None
         if self._stopped or self.discovery.running:
             return
         snapshot = self.discovery.scan(
