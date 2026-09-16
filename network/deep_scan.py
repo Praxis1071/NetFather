@@ -1,0 +1,197 @@
+"""Optional deep local-network inventory using the system Nmap binary.
+
+The normal discovery path stays lightweight. This module adds a deliberately
+opt-in, local-network-only deep pass for TCP/UDP services, service versions,
+and OS fingerprinting when Nmap and the required Linux privileges are
+available.
+"""
+from __future__ import annotations
+
+import ipaddress
+import os
+import shutil
+import subprocess
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+
+from core.logger import get_logger
+
+log = get_logger("network.deep_scan")
+
+
+@dataclass(frozen=True, slots=True)
+class DeepScanResult:
+    ip: str
+    mac: str | None = None
+    vendor: str | None = None
+    hostname: str | None = None
+    os_name: str | None = None
+    os_accuracy: int | None = None
+    device_type: str | None = None
+    open_tcp_ports: tuple[int, ...] = field(default_factory=tuple)
+    open_udp_ports: tuple[int, ...] = field(default_factory=tuple)
+    services: tuple[str, ...] = field(default_factory=tuple)
+    latency_ms: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeepScanReport:
+    available: bool
+    privileged: bool
+    command: tuple[str, ...] = field(default_factory=tuple)
+    hosts: tuple[DeepScanResult, ...] = field(default_factory=tuple)
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+def nmap_available() -> bool:
+    return shutil.which("nmap") is not None
+
+
+def privileged() -> bool:
+    try:
+        return os.geteuid() == 0
+    except AttributeError:
+        return False
+
+
+def _validate_local_target(target: str) -> str:
+    network = ipaddress.ip_network(target, strict=False)
+    if network.version != 4:
+        raise ValueError("Deep scan şu anda yalnızca yerel IPv4 ağlarını destekliyor.")
+    if not (network.is_private or network.is_link_local):
+        raise ValueError("Deep scan yalnızca private/link-local yerel ağlarda çalıştırılabilir.")
+    if network.prefixlen < 16:
+        raise ValueError("Deep scan için ağ en fazla /16 olmalıdır.")
+    return str(network)
+
+
+def _text(node: ET.Element | None, path: str) -> str | None:
+    if node is None:
+        return None
+    value = node.findtext(path)
+    return value.strip() if value else None
+
+
+def _parse_nmap_xml(raw: str) -> tuple[DeepScanResult, ...]:
+    root = ET.fromstring(raw)
+    results: list[DeepScanResult] = []
+    for host in root.findall("host"):
+        status = host.find("status")
+        if status is None or status.attrib.get("state") != "up":
+            continue
+        addresses = host.findall("address")
+        ip = next((a.attrib.get("addr") for a in addresses if a.attrib.get("addrtype") == "ipv4"), None)
+        if not ip:
+            continue
+        mac_node = next((a for a in addresses if a.attrib.get("addrtype") == "mac"), None)
+        mac = mac_node.attrib.get("addr") if mac_node is not None else None
+        vendor = mac_node.attrib.get("vendor") if mac_node is not None else None
+        hostname = _text(host.find("hostnames/hostname"), ".")
+        tcp_ports: list[int] = []
+        udp_ports: list[int] = []
+        services: list[str] = []
+        for port in host.findall("ports/port"):
+            state = port.find("state")
+            if state is None or state.attrib.get("state") != "open":
+                continue
+            try:
+                number = int(port.attrib["portid"])
+            except (KeyError, ValueError):
+                continue
+            protocol = port.attrib.get("protocol", "tcp")
+            (udp_ports if protocol == "udp" else tcp_ports).append(number)
+            service = port.find("service")
+            if service is not None:
+                name = service.attrib.get("name") or "unknown"
+                product = service.attrib.get("product")
+                version = service.attrib.get("version")
+                detail = " ".join(x for x in (name, product, version) if x)
+                if detail:
+                    services.append(f"{protocol}/{number}: {detail}")
+        os_name = None
+        os_accuracy = None
+        osmatch = host.find("os/osmatch")
+        if osmatch is not None:
+            os_name = osmatch.attrib.get("name")
+            try:
+                os_accuracy = int(osmatch.attrib.get("accuracy", "0"))
+            except ValueError:
+                os_accuracy = None
+        device_type = None
+        osclass = host.find("os/osmatch/osclass")
+        if osclass is not None:
+            device_type = osclass.attrib.get("type")
+        distance = host.find("distance")
+        latency = None
+        if distance is not None:
+            try:
+                latency = float(host.find("times").attrib.get("srtt", "0")) / 1000.0 if host.find("times") is not None else None
+            except (AttributeError, ValueError):
+                latency = None
+        results.append(DeepScanResult(
+            ip=ip,
+            mac=mac,
+            vendor=vendor,
+            hostname=hostname,
+            os_name=os_name,
+            os_accuracy=os_accuracy,
+            device_type=device_type,
+            open_tcp_ports=tuple(sorted(set(tcp_ports))),
+            open_udp_ports=tuple(sorted(set(udp_ports))),
+            services=tuple(dict.fromkeys(services)),
+            latency_ms=latency,
+        ))
+    return tuple(results)
+
+
+def run_deep_scan(
+    target: str,
+    *,
+    include_udp: bool = True,
+    include_os: bool = True,
+    include_versions: bool = True,
+    top_ports: int = 100,
+    timeout_seconds: int = 300,
+) -> DeepScanReport:
+    """Run an opt-in, bounded deep inventory of a local IPv4 network."""
+    if not nmap_available():
+        return DeepScanReport(False, privileged(), warnings=("Nmap bulunamadı; deep scan kullanılamıyor.",))
+    network = _validate_local_target(target)
+    is_privileged = privileged()
+    ports = max(10, min(1000, int(top_ports)))
+    command = ["nmap", "-n", "-Pn", "--open", "--max-retries", "2", "-T3", "--host-timeout", "2m", "-oX", "-", network]
+    warnings: list[str] = []
+    if is_privileged:
+        command[1:1] = ["-sS"]
+        if include_os:
+            command.insert(2, "-O")
+            command.insert(3, "--osscan-limit")
+            command.insert(4, "--osscan-guess")
+    else:
+        command[1:1] = ["-sT"]
+        if include_os:
+            warnings.append("OS fingerprinting için root/raw-packet yetkisi gerekli; bu taramada atlandı.")
+    command.extend(["--top-ports", str(ports)])
+    if include_udp:
+        if is_privileged:
+            command.insert(command.index("--top-ports"), "-sU")
+        else:
+            warnings.append("UDP taraması için gerekli ayrıcalık yok; UDP aşaması atlandı.")
+    if include_versions:
+        command.insert(command.index("--top-ports"), "-sV")
+        command.insert(command.index("-sV") + 1, "--version-light")
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=max(30, timeout_seconds), check=False)
+    except subprocess.TimeoutExpired:
+        return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + ["Deep scan zaman aşımına uğradı."]))
+    except OSError as exc:
+        return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + [f"Nmap çalıştırılamadı: {exc}"]))
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or "Nmap taraması başarısız oldu."
+        return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + [detail]))
+    try:
+        hosts = _parse_nmap_xml(completed.stdout)
+    except ET.ParseError as exc:
+        log.warning("Nmap XML parse failed: %s", exc)
+        return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + ["Nmap çıktısı çözümlenemedi."]))
+    return DeepScanReport(True, is_privileged, tuple(command), hosts=hosts, warnings=tuple(warnings))
