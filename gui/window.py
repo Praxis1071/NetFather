@@ -10,6 +10,7 @@ from core.config import Config
 from core.database import Database
 from gui.pages import DashboardPage, DevicesPage, DiscoveryPage, PlaceholderPage
 from gui.profiles_page import ProfilesPage
+from gui.rules_page import RulesPage
 from gui.state import ApplicationState
 from gui.tasks import BackgroundTaskRunner
 from gui.topology_page import TopologyPage
@@ -40,7 +41,7 @@ class NetFatherWindow(Gtk.ApplicationWindow):
             "Devices": DevicesPage(database, state, tasks),
             "Network Topology": TopologyPage(database, tasks),
             "Profiles": ProfilesPage(database, tasks),
-            "Rules": PlaceholderPage("Rules", "Schedules and policy rules will be managed here."),
+            "Rules": RulesPage(database, tasks),
             "Monitoring": PlaceholderPage("Monitoring", "Live traffic and device activity will appear here."),
             "Events": PlaceholderPage("Events", "Policy and network events will appear here."),
             "Settings": PlaceholderPage("Settings", "Application settings will be managed here."),
