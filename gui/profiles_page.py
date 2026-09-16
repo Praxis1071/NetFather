@@ -5,11 +5,15 @@ from gi.repository import Gtk
 
 from core.database import Database
 from gui.tasks import BackgroundTaskRunner
+from manager.device_manager import DeviceManager
 from manager.profile_manager import ProfileManager
 
 
+MODES = ("unrestricted", "controlled", "blocked")
+
+
 class ProfilesPage(Gtk.Box):
-    """Manage device access profiles through the GTK4 application."""
+    """Manage device-bound access profiles through GTK4."""
 
     def __init__(self, database: Database, tasks: BackgroundTaskRunner) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -19,38 +23,42 @@ class ProfilesPage(Gtk.Box):
         self.set_margin_end(32)
         self.database = database
         self.tasks = tasks
-        self.manager = ProfileManager(database)
+        self.profile_manager = ProfileManager(database)
+        self.device_manager = DeviceManager(database)
         self._busy = False
 
         heading = Gtk.Label(label="Profiles", xalign=0)
         heading.add_css_class("title-1")
         self.append(heading)
         subtitle = Gtk.Label(
-            label="Create reusable access policies and assign them to managed devices.",
+            label="Assign an access mode to a managed device. Profiles are enforced later by the policy layer.",
             xalign=0,
             wrap=True,
         )
         subtitle.add_css_class("dim-label")
         self.append(subtitle)
 
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self.refresh_button = Gtk.Button(label="Refresh")
-        self.refresh_button.connect("clicked", lambda _button: self.refresh())
-        toolbar.append(self.refresh_button)
-        self.name_entry = Gtk.Entry(placeholder_text="New profile name")
+        form = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.device = Gtk.DropDown.new_from_strings(["Loading devices..."])
+        self.device.set_hexpand(True)
+        self.name_entry = Gtk.Entry(placeholder_text="Profile name")
         self.name_entry.set_hexpand(True)
-        toolbar.append(self.name_entry)
-        self.mode = Gtk.DropDown.new_from_strings(["unrestricted", "controlled", "blocked"])
-        toolbar.append(self.mode)
+        self.mode = Gtk.DropDown.new_from_strings(list(MODES))
         self.create_button = Gtk.Button(label="Create profile")
         self.create_button.add_css_class("suggested-action")
         self.create_button.connect("clicked", lambda _button: self.create_profile())
-        toolbar.append(self.create_button)
-        self.append(toolbar)
+        form.append(self.device)
+        form.append(self.name_entry)
+        form.append(self.mode)
+        form.append(self.create_button)
+        self.append(form)
+
+        self.refresh_button = Gtk.Button(label="Refresh")
+        self.refresh_button.connect("clicked", lambda _button: self.refresh())
+        self.append(self.refresh_button)
 
         self.status = Gtk.Label(label="Ready", xalign=0, wrap=True)
         self.append(self.status)
-
         self.list_box = Gtk.ListBox()
         self.list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self.list_box.set_vexpand(True)
@@ -64,40 +72,59 @@ class ProfilesPage(Gtk.Box):
         self._busy = True
         self.refresh_button.set_sensitive(False)
         self.create_button.set_sensitive(False)
-        self.status.set_text("Loading profiles...")
+        self.status.set_text("Loading profiles and devices...")
         self.tasks.submit(self._load, self._loaded, self._failed)
 
     def _load(self):
-        return self.manager.list_profiles()
+        return self.profile_manager.list_profiles(), self.device_manager.list_devices()
 
-    def _loaded(self, profiles) -> None:
+    def _loaded(self, result) -> None:
+        profiles, devices = result
         self._busy = False
         self.refresh_button.set_sensitive(True)
         self.create_button.set_sensitive(True)
+        names = [device.name for device in devices]
+        self.device = self._replace_dropdown(self.device, names or ["No devices"])
         while (child := self.list_box.get_first_child()) is not None:
             self.list_box.remove(child)
         for profile in profiles:
             self.list_box.append(self._profile_row(profile))
-        self.status.set_text(f"{len(profiles)} profiles")
+        self.status.set_text(f"{len(profiles)} profiles | {len(devices)} devices")
+
+    @staticmethod
+    def _replace_dropdown(old: Gtk.DropDown, values: list[str]) -> Gtk.DropDown:
+        parent = old.get_parent()
+        dropdown = Gtk.DropDown.new_from_strings(values)
+        dropdown.set_hexpand(True)
+        if parent is not None:
+            position = 0
+            child = parent.get_first_child()
+            while child is not None and child is not old:
+                position += 1
+                child = child.get_next_sibling()
+            parent.remove(old)
+            parent.insert_child_after(dropdown, parent.get_first_child() if position else None)
+        return dropdown
 
     def create_profile(self) -> None:
+        device_name = self.device.get_selected_item().get_string() if self.device.get_selected_item() else ""
         name = self.name_entry.get_text().strip()
-        if not name:
-            self.status.set_text("Enter a profile name first.")
+        if not device_name or device_name == "No devices" or not name:
+            self.status.set_text("Select a device and enter a profile name.")
             return
-        mode = ["unrestricted", "controlled", "blocked"][self.mode.get_selected()]
+        mode = MODES[self.mode.get_selected()]
         self.create_button.set_sensitive(False)
         self.status.set_text("Creating profile...")
         self.tasks.submit(
-            lambda: self.manager.create_profile(name, mode=mode),
+            lambda: self.profile_manager.create_profile(device_name, name, mode),
             self._created,
             self._failed,
         )
 
     def _created(self, _profile) -> None:
         self.name_entry.set_text("")
-        self.status.set_text("Profile created.")
         self.create_button.set_sensitive(True)
+        self.status.set_text("Profile created.")
         self.refresh()
 
     def _failed(self, error: BaseException) -> None:
@@ -116,9 +143,10 @@ class ProfilesPage(Gtk.Box):
         title = Gtk.Label(label=profile.name, xalign=0)
         title.add_css_class("heading")
         row.append(title)
-        devices = len(profile.devices) if hasattr(profile, "devices") else 0
+        device = getattr(profile, "device", None)
+        device_name = device.name if device is not None else "Unknown device"
         info = Gtk.Label(
-            label=f"Mode: {profile.mode}  |  Devices: {devices}",
+            label=f"Device: {device_name}  |  Mode: {profile.internet_mode}",
             xalign=0,
         )
         info.add_css_class("dim-label")
