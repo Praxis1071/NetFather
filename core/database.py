@@ -3,14 +3,6 @@ NetFather database bağlantı katmanı.
 
 SQLite üzerinde SQLAlchemy engine ve session yönetimini sağlar.
 Tüm modeller `models.base.Base` üzerinden bu engine'e bağlanır.
-
-Tasarım notları:
-    - SQLite varsayılan olarak foreign key kısıtlarını uygulamaz; bu modül
-      her bağlantıda `PRAGMA foreign_keys=ON` çalıştırarak referans
-      bütünlüğünü garanti eder.
-    - `check_same_thread=False` farklı worker thread'lerinin aynı engine'i
-      güvenle kullanabilmesini sağlar; gerçek eşzamanlılık SQLAlchemy'nin
-      connection pool'u üzerinden yönetilir.
 """
 
 from __future__ import annotations
@@ -33,7 +25,6 @@ log = get_logger("database")
 
 def _enable_sqlite_foreign_keys(engine: Engine) -> None:
     """Her yeni DBAPI bağlantısında SQLite foreign key kısıtlarını açar."""
-
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
         cursor = dbapi_connection.cursor()
@@ -45,14 +36,20 @@ class Database:
     """SQLite database bağlantısını, şema kurulumunu ve session fabrikasını yönetir."""
 
     def __init__(self, db_path: Path | str) -> None:
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path = str(db_path)
+        if raw_path.startswith("sqlite:///"):
+            self.db_url = raw_path
+            self.db_path = Path(raw_path.removeprefix("sqlite:///"))
+        else:
+            self.db_path = Path(raw_path)
+            self.db_url = f"sqlite:///{self.db_path}"
 
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._is_new_database = not self.db_path.exists()
 
         try:
             self.engine = create_engine(
-                f"sqlite:///{self.db_path}",
+                self.db_url,
                 connect_args={"check_same_thread": False},
                 future=True,
             )
@@ -135,7 +132,7 @@ class Database:
 _db_instance: Database | None = None
 
 
-def get_database(db_path: Path | None = None) -> Database:
+def get_database(db_path: Path | str | None = None) -> Database:
     """Process genelindeki singleton Database örneğini döndürür."""
     global _db_instance
     if _db_instance is None:
