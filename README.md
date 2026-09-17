@@ -183,4 +183,4 @@ The CLI and TUI are retired development targets and should not be reintroduced u
 
 ## License
 
-MIT
+GNU General Public License v3 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).
