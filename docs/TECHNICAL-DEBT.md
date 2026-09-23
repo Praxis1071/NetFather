@@ -11,22 +11,24 @@ Status markers:
 
 ### P0.1 CI enforcement integration failure
 - [ ] Identify and fix the failing nftables network-namespace integration job.
-- [ ] Re-run the complete CI matrix.
+- [~] Added an explicit privileged prerequisite probe and verbose test output so the runner failure is diagnosable.
+- [ ] Re-run the complete CI matrix after the test environment issue is understood.
 - [ ] Do not treat unit-test success as sufficient for firewall correctness.
 
 ### P0.2 Linux-only diagnostics compatibility
 - [x] Remove the stale PlatformFamily dependency and Windows/macOS branches from core/diagnostics.py.
-- [ ] Add a regression test that imports and executes diagnostics on Linux.
+- [x] Add a regression test that imports and executes diagnostics on Linux.
 
 ### P0.3 Enforcement deployment model
-- [ ] Document and enforce the supported topology for controlling other devices.
-- [ ] Distinguish a NetFather desktop host from a Linux gateway/router or other valid traffic enforcement point.
-- [ ] Prevent the UI from implying that discovering a device automatically gives NetFather control over its internet traffic.
+- [x] Document that discovery does not imply remote traffic control.
+- [x] Document the required gateway/router/inline traffic path for controlling another device.
+- [ ] Add runtime validation and UI safeguards so the deployment topology is explicit before enforcement.
 
 ### P0.4 Effective profile semantics
-- [ ] Define and implement the meaning of unrestricted, controlled, and blocked.
-- [ ] Ensure controlled produces a real policy outcome rather than falling through to default allow.
-- [ ] Add policy precedence tests.
+- [x] Define unrestricted, controlled, and blocked semantics in PolicyEngine.
+- [x] controlled now denies by default and requires an active allow rule.
+- [x] An active block rule overrides an active allow rule.
+- [x] Add policy precedence tests.
 
 ### P0.5 Enforcement identity
 - [ ] Stop treating a current IPv4 address as the durable identity of a device.
@@ -51,10 +53,12 @@ Status markers:
 - [ ] Account for randomized Wi-Fi MAC addresses where evidence permits.
 
 ### P1.2 Live presence and event propagation
-- [ ] Turn neighbor events into direct device state transitions where safe.
+- [~] Linux neighbor notifications are already monitored and debounced.
+- [~] Current presence events trigger discovery reconciliation.
+- [ ] Turn safe neighbor events into direct device state transitions.
 - [ ] Add a central runtime event bus.
 - [ ] Emit and persist NEW_DEVICE_DETECTED, DEVICE_ONLINE, DEVICE_OFFLINE, DEVICE_CHANGED, DEVICE_IDENTITY_UPDATED, and policy/enforcement events consistently.
-- [ ] Keep the periodic discovery scan as a safety reconciliation mechanism rather than the only event path.
+- [ ] Keep periodic discovery as a safety reconciliation mechanism.
 
 ### P1.3 Atomic nftables updates
 - [ ] Replace destructive table recreation with atomic named-set element updates.
@@ -66,9 +70,9 @@ Status markers:
 - [ ] Test transitions from allowed to blocked and blocked to allowed with existing connections.
 
 ### P1.5 Discovery configuration correctness
-- [x] DiscoveryService.scan() now accepts auto_register and offline_after_seconds.
-- [ ] Pass those values from application configuration everywhere discovery is invoked, including live presence.
-- [ ] Add tests proving configuration changes alter reconciliation behavior.
+- [x] DiscoveryService.scan() accepts explicit auto-registration and offline-grace settings.
+- [x] LivePresenceService receives and uses those settings.
+- [ ] Add broader tests proving configuration changes alter reconciliation behavior.
 
 ### P1.6 Deep inventory
 - [ ] Use host discovery to bound deep scans before expensive TCP/UDP/version/OS probes.
@@ -129,11 +133,12 @@ Status markers:
 
 ## Completed in this hardening pass
 
-- Created a pre-fix backup branch: backup/pre-p0-fixes-2026-09-23.
-- Updated README.md to state the current implementation boundary and link this checklist.
-- Rewrote SECURITY.md around the actual Linux-only architecture and current enforcement limitations.
-- Removed the broken cross-platform PlatformFamily dependency from core/diagnostics.py.
-- Corrected the GPL license classifier in pyproject.toml.
-- Made DiscoveryService accept explicit auto-registration and offline-grace settings instead of hard-coding them.
+- Created backup branch: backup/pre-audit-fixes-2026-09-23.
+- Updated README.md with the current implementation boundary, enforcement deployment model, live-presence architecture, and hardening references.
+- Updated SECURITY.md with the current threat model, enforcement-point requirements, privilege boundaries, and known security work.
+- Added a Linux diagnostics regression test.
+- Made controlled profile semantics explicit and added policy precedence tests.
+- Confirmed DiscoveryService accepts reconciliation settings and LivePresenceService propagates them.
+- Added a CI prerequisite probe and verbose firewall integration invocation for the remaining network-namespace failure.
 
 This file should be updated whenever a finding is fixed, superseded, or split into smaller engineering tasks.
