@@ -214,7 +214,7 @@ def run_deep_scan(
     try:
         completed = subprocess.run(
             command,
-            input="\\n".join(live_ips) + "\\n",
+            input="\n".join(live_ips) + "\n",
             capture_output=True,
             text=True,
             encoding="utf-8",
