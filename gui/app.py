@@ -135,6 +135,8 @@ class NetFatherApplication(Gtk.Application):
             self.live_presence = LivePresenceService(
                 self.database,
                 interval_seconds=self.config.discovery.live_presence_interval_seconds,
+                auto_register=self.config.discovery.auto_register,
+                offline_after_seconds=self.config.discovery.offline_after_seconds,
                 on_reconciled=self._on_live_reconciled,
             )
             if self.config.discovery.live_presence_enabled:
