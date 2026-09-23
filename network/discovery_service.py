@@ -70,6 +70,8 @@ class DiscoveryService:
         hostname_resolution: bool = False,
         vendor_detection: bool = True,
         os_detection: bool = False,
+        auto_register: bool = True,
+        offline_after_seconds: int = 45,
         active_timeout_seconds: int | None = None,
         deep_udp: bool = True,
         deep_versions: bool = True,
@@ -103,7 +105,11 @@ class DiscoveryService:
             identities = self.resolver.reconcile(observations)
             new_devices = updated_devices = offline_devices = 0
             if self.device_manager is not None:
-                new_devices, updated_devices, offline_devices = self.device_manager.reconcile_discovery(hosts, auto_register=True)
+                new_devices, updated_devices, offline_devices = self.device_manager.reconcile_discovery(
+                    hosts,
+                    auto_register=auto_register,
+                    offline_after_seconds=offline_after_seconds,
+                )
             snapshot = DiscoverySnapshot(started_at=started, completed_at=utc_now(), scanned=len(hosts), hosts=tuple(hosts), identities=tuple(identities), new_devices=new_devices, updated_devices=updated_devices, offline_devices=offline_devices)
         except Exception as exc:
             snapshot = DiscoverySnapshot(started_at=started, completed_at=utc_now(), scanned=0, identities=self.resolver.all(), error=str(exc))
