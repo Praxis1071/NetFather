@@ -65,17 +65,30 @@ class NftablesBackend(FirewallBackend):
         if checked.returncode != 0:
             raise RuntimeError(f"nft validation failed: {checked.stderr.strip()}")
         existing = _run([nft, "list", "table", "inet", self.table])
-        backup = existing.stdout if existing.returncode == 0 else ""
-        if existing.returncode == 0:
-            deleted = _run([nft, "delete", "table", "inet", self.table])
-            if deleted.returncode != 0:
-                raise RuntimeError(deleted.stderr.strip())
-        result = _run([nft, "-f", "-"], input_text=script)
+        if existing.returncode != 0:
+            # First installation: create the complete NetFather-owned table.
+            result = _run([nft, "-f", "-"], input_text=script)
+            if result.returncode != 0:
+                raise RuntimeError(f"nft apply failed: {result.stderr.strip()}")
+            return FirewallResult(self.name, True, tuple(ips), "NetFather nftables table created", script)
+
+        # Existing NetFather state is updated in one nft transaction.  Do not
+        # delete/recreate the table: that would unnecessarily reset counters,
+        # briefly remove enforcement, and make rollback more fragile.
+        if ips:
+            update_script = (
+                f"flush set inet {self.table} blocked4\\n"
+                f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\\n"
+            )
+        else:
+            update_script = f"flush set inet {self.table} blocked4\\n"
+        checked_update = _run([nft, "-c", "-f", "-"], input_text=update_script)
+        if checked_update.returncode != 0:
+            raise RuntimeError(f"nft validation failed: {checked_update.stderr.strip()}")
+        result = _run([nft, "-f", "-"], input_text=update_script)
         if result.returncode != 0:
-            if backup:
-                _run([nft, "-f", "-"], input_text=backup)
-            raise RuntimeError(f"nft apply failed: {result.stderr.strip()}")
-        return FirewallResult(self.name, True, tuple(ips), "NetFather nftables table applied", script)
+            raise RuntimeError(f"nft atomic update failed: {result.stderr.strip()}")
+        return FirewallResult(self.name, True, tuple(ips), "NetFather nftables set updated atomically", update_script)
 
     def rollback(self, *, apply: bool = False) -> FirewallResult:
         if not apply:
