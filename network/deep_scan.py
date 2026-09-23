@@ -155,6 +155,45 @@ def run_deep_scan(
             prefix = ["pkexec", "nmap"]
             is_privileged = True
     ports = max(10, min(1000, int(top_ports)))
+
+    # First discover live hosts. The previous implementation used -Pn against
+    # the entire network, which forced Nmap to perform the expensive deep probe
+    # even for addresses that were not alive. Feed only confirmed live IPv4
+    # addresses into the expensive inventory pass.
+    discovery_command = prefix + ["-n", "-sn", "--max-retries", "1", "-T3", "-oX", "-", network]
+    if network.endswith("/16"):
+        warnings.append("Deep scan /16 ağlarda önce host keşfi yapar; yine de büyük ağlarda tarama süresi artabilir.")
+    try:
+        discovery = subprocess.run(
+            discovery_command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(30, min(timeout_seconds, 180)),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return DeepScanReport(True, is_privileged, tuple(discovery_command), warnings=tuple(warnings + ["Host discovery zaman aşımına uğradı."]))
+    except OSError as exc:
+        return DeepScanReport(True, is_privileged, tuple(discovery_command), warnings=tuple(warnings + [f"Nmap host discovery çalıştırılamadı: {exc}"]))
+    if discovery.returncode != 0:
+        detail = discovery.stderr.strip() or "Nmap host discovery başarısız oldu."
+        return DeepScanReport(True, is_privileged, tuple(discovery_command), warnings=tuple(warnings + [detail]))
+    try:
+        live_hosts = _parse_nmap_xml(discovery.stdout)
+    except ET.ParseError:
+        log.warning("Nmap host discovery XML parse failed")
+        return DeepScanReport(True, is_privileged, tuple(discovery_command), warnings=tuple(warnings + ["Nmap host discovery çıktısı çözümlenemedi."]))
+    live_ips = tuple(dict.fromkeys(host.ip for host in live_hosts))
+    if not live_ips:
+        return DeepScanReport(
+            True,
+            is_privileged,
+            tuple(discovery_command),
+            warnings=tuple(warnings + ["Host discovery canlı cihaz bulamadı; deep inventory çalıştırılmadı."]),
+        )
+
     command = prefix + ["-n", "-Pn", "--open", "--max-retries", "2", "-T3", "--host-timeout", "2m"]
     if is_privileged:
         command.append("-sS")
@@ -171,9 +210,18 @@ def run_deep_scan(
             warnings.append("UDP taraması için gerekli ayrıcalık yok; UDP aşaması atlandı.")
     if include_versions:
         command.extend(["-sV", "--version-light"])
-    command.extend(["--top-ports", str(ports), "-oX", "-", network])
+    command.extend(["--top-ports", str(ports), "-oX", "-", "-iL", "-"])
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=max(30, timeout_seconds), check=False)
+        completed = subprocess.run(
+            command,
+            input="\\n".join(live_ips) + "\\n",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(30, timeout_seconds),
+            check=False,
+        )
     except subprocess.TimeoutExpired:
         return DeepScanReport(True, is_privileged, tuple(command), warnings=tuple(warnings + ["Deep scan zaman aşımına uğradı."]))
     except OSError as exc:
