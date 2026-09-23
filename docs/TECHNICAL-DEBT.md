@@ -10,10 +10,10 @@ Status markers:
 ## P0 — correctness and safety
 
 ### P0.1 CI enforcement integration failure
-- [~] Root cause identified: the generated nftables base-chain rules were missing statement terminators before closing braces, so nft rejected the ruleset in the namespace integration test.
+- [x] Root cause identified: the generated nftables base-chain rules were missing statement terminators before closing braces, so nft rejected the ruleset in the namespace integration test.
 - [x] Corrected the nftables ruleset generator to emit valid multi-line chain syntax.
-- [~] Added an explicit privileged prerequisite probe and verbose test output so runner failures remain diagnosable.
-- [ ] Confirm the corrected ruleset with a green complete CI matrix.
+- [x] Added an explicit privileged prerequisite probe and verbose test output so runner failures remain diagnosable.
+- [x] Confirmed the corrected ruleset with green CI runs 126 and 127 on the main branch.
 - [ ] Do not treat unit-test success as sufficient for firewall correctness.
 
 ### P0.2 Linux-only diagnostics compatibility
@@ -126,6 +126,12 @@ Status markers:
 ### P3.2 Metadata consistency
 - [x] Correct the Python package license classifier to GPL-3.0-or-later.
 - [ ] Keep README, LICENSE, pyproject metadata, release docs, and version information synchronized.
+
+### P3.4 Developer installation / venv reproducibility
+- [x] Document the supported CachyOS/Arch Linux setup using a Python venv with `--system-site-packages` so distribution-provided GTK4/PyGObject can be reused safely.
+- [x] Document editable installation with `python -m pip install -e .` and repeatable launch through the `netfather` entry point.
+- [x] Remove duplicate runtime dependencies from `requirements-dev.txt`.
+- [ ] Add CI coverage for the documented editable-install workflow and entry-point launch contract.
 
 ### P3.3 Release pipeline
 - [ ] Decide whether ARM64 is a supported release target.
