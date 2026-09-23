@@ -18,9 +18,13 @@ class LivePresenceService:
         database: Database,
         *,
         interval_seconds: int = 15,
+        auto_register: bool = True,
+        offline_after_seconds: int = 45,
         on_reconciled: Callable[[object], None] | None = None,
     ) -> None:
         self.interval_seconds = max(3, interval_seconds)
+        self.auto_register = auto_register
+        self.offline_after_seconds = max(1, offline_after_seconds)
         self.on_reconciled = on_reconciled
         self.discovery = DiscoveryService(device_manager=DeviceManager(database))
         self.monitor = PresenceMonitor(self._on_presence_event)
@@ -81,6 +85,8 @@ class LivePresenceService:
             hostname_resolution=False,
             vendor_detection=True,
             os_detection=False,
+            auto_register=self.auto_register,
+            offline_after_seconds=self.offline_after_seconds,
         )
         if self.on_reconciled is not None:
             self.on_reconciled(snapshot)
