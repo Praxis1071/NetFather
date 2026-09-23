@@ -35,6 +35,25 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+  install-and-entrypoint:
+    name: Linux venv editable install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system GTK/PyGObject dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-venv python3-gi gir1.2-gtk-4.0 libgirepository-2.0-dev libcairo2-dev pkg-config
+      - name: Create supported venv and install package
+        run: |
+          python3 -m venv --system-site-packages .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+      - name: Validate installed entry point and imports
+        run: |
+          . .venv/bin/activate
+          command -v netfather
+          python -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; import gui.app; print('NetFather import/entry-point contract OK')"
+
   linux-firewall-integration:
     name: Linux network namespace / nftables integration
     runs-on: ubuntu-24.04
