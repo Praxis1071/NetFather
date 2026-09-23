@@ -145,27 +145,66 @@ Windows and macOS are not project targets.
 For CachyOS / Arch Linux:
 
 ```bash
-sudo pacman -S --needed python gtk4 python-gobject iproute2 nftables nmap polkit
+sudo pacman -S --needed python python-pip python-gobject gtk4 iproute2 nftables nmap polkit
 ```
 
-Then install the Python project in an isolated environment according to your preferred Python workflow. Dependencies are declared in `pyproject.toml`.
+### Recommended CachyOS / Arch Linux setup
 
-## Running
+NetFather should be run from a Python virtual environment. The environment should use **system site packages** because GTK4/PyGObject is provided by the distribution and depends on native GObject libraries; installing PyGObject from PyPI inside a normal isolated venv can fail or create an unnecessary native-build problem.
 
-From the project directory:
+From the repository root, using Fish:
+
+```fish
+python -m venv --system-site-packages .venv
+source .venv/bin/activate.fish
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+The same setup with Bash/Zsh is:
+
+```bash
+python -m venv --system-site-packages .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+After installation, the project can be started from the activated environment with:
 
 ```bash
 python -m gui.app
 ```
 
-If installed as a package:
+or:
 
 ```bash
 netfather
 ```
 
-Some discovery and enforcement operations require appropriate Linux privileges. Deep discovery can request authorization only for the Nmap process rather than running the whole GUI as root.
+To use NetFather again later:
 
+```fish
+source .venv/bin/activate.fish
+netfather
+```
+
+To leave the environment:
+
+```fish
+deactivate
+```
+
+For development and tests, install the development dependencies after activating the venv:
+
+```fish
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+If the venv was created without `--system-site-packages`, recreate it with that option rather than trying to force-install the system GTK/PyGObject stack into the venv.
+
+Some discovery and enforcement operations require appropriate Linux privileges. Deep discovery can request authorization only for the Nmap process rather than running the whole GUI as root. Do not run the entire GTK application as root.
 ## Testing
 
 Run the normal suite with:
