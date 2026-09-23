@@ -36,8 +36,8 @@ Status markers:
 - [ ] Update enforcement safely when DHCP changes a device IP.
 
 ### P0.6 Self-lockout protection
-- [ ] Protect the NetFather host/management path before applying blocking policies.
-- [ ] Add explicit gateway/interface/admin-host safeguards.
+- [~] Firewall sync now refuses to install blocks for the detected local IPv4 address or gateway IPv4 address.
+- [ ] Add explicit interface/admin-host safeguards beyond the basic local/gateway guard.
 - [ ] Integration-test failure and recovery paths.
 
 ### P0.7 Privileged-service separation
@@ -140,5 +140,6 @@ Status markers:
 - Made controlled profile semantics explicit and added policy precedence tests.
 - Confirmed DiscoveryService accepts reconciliation settings and LivePresenceService propagates them.
 - Added a CI prerequisite probe and verbose firewall integration invocation for the remaining network-namespace failure.
+- Added a basic firewall self-lockout guard for the local host and detected gateway, with regression coverage.
 
 This file should be updated whenever a finding is fixed, superseded, or split into smaller engineering tasks.
