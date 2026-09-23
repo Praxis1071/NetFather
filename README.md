@@ -20,6 +20,10 @@ NetFather is designed to:
 
 NetFather 0.5.0 is in active GTK4 application development.
 
+The project is intentionally **not yet a finished traffic-enforcement product**. Device discovery, identity, profiles, rules, policy evaluation, live presence foundations, monitoring, and an nftables backend exist, but the complete production path from persistent device identity to safe real-network enforcement is still being hardened and integration-tested.
+
+Current engineering priorities are tracked in [docs/TECHNICAL-DEBT.md](docs/TECHNICAL-DEBT.md). The highest-priority work is CI/enforcement reliability, persistent identity, live event propagation, safe nftables updates, privileged-service separation, and end-to-end integration testing.
+
 The current implementation includes:
 
 - GTK4 application shell with animated workspace navigation;
