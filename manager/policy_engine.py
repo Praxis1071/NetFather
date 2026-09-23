@@ -1,10 +1,13 @@
 """Central effective-policy evaluation for devices and profiles."""
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 from core.database import Database
 from manager.device_manager import DeviceManager
 from manager.profile_manager import ProfileManager
 from manager.rule_manager import RuleManager
+
 
 @dataclass(frozen=True)
 class DevicePolicy:
@@ -16,7 +19,18 @@ class DevicePolicy:
     allowed: bool
     reason: str
 
+
 class PolicyEngine:
+    """Evaluate the effective access policy for a managed device.
+
+    Profile semantics are explicit:
+
+    - blocked always denies access.
+    - controlled denies by default and requires an active allow rule.
+    - unrestricted allows by default unless an active block rule exists.
+    - an active block rule overrides an active allow rule.
+    """
+
     def __init__(self, db: Database) -> None:
         self.db = db
 
@@ -24,18 +38,35 @@ class PolicyEngine:
         device = DeviceManager(self.db).get_device_by_name(device_name)
         profiles = ProfileManager(self.db).list_profiles(device_name=device_name)
         rules = RuleManager(self.db).active_rules(device_name=device_name)
+
         blocked_profile = next((p for p in profiles if p.internet_mode == "blocked"), None)
+        controlled_profile = next((p for p in profiles if p.internet_mode == "controlled"), None)
         block_rule = next((r for r in rules if r.action == "block"), None)
         allow_rule = next((r for r in rules if r.action == "allow"), None)
+
         if blocked_profile:
             allowed, reason = False, f"profile:{blocked_profile.name}=blocked"
         elif block_rule:
             allowed, reason = False, f"rule:{block_rule.id}=block"
+        elif controlled_profile:
+            if allow_rule:
+                allowed, reason = True, f"profile:{controlled_profile.name}=controlled;rule:{allow_rule.id}=allow"
+            else:
+                allowed, reason = False, f"profile:{controlled_profile.name}=controlled;default-deny"
         elif allow_rule:
             allowed, reason = True, f"rule:{allow_rule.id}=allow"
         else:
             allowed, reason = True, "default-allow"
-        return DevicePolicy(device.id, device.name, device.mac, device.ip, bool(device.online), allowed, reason)
+
+        return DevicePolicy(
+            device.id,
+            device.name,
+            device.mac,
+            device.ip,
+            bool(device.online),
+            allowed,
+            reason,
+        )
 
     def evaluate_all(self) -> list[DevicePolicy]:
         return [self.evaluate_device(d.name) for d in DeviceManager(self.db).list_devices()]
