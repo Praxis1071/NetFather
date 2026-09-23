@@ -37,3 +37,64 @@ def test_deep_scan_parses_services_and_ports() -> None:
     assert "OpenSSH 9.9" in result.services[0]
     assert result.os_name == "Linux 6.x"
     assert result.os_accuracy == 96
+
+
+def test_deep_scan_inventory_is_limited_to_discovered_live_hosts(monkeypatch) -> None:
+    calls = []
+    discovery_xml = """<?xml version="1.0"?>
+<nmaprun>
+  <host><status state="up"/><address addr="192.168.1.21" addrtype="ipv4"/></host>
+  <host><status state="down"/><address addr="192.168.1.22" addrtype="ipv4"/></host>
+</nmaprun>
+"""
+    inventory_xml = """<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <status state="up"/>
+    <address addr="192.168.1.21" addrtype="ipv4"/>
+    <ports><port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port></ports>
+  </host>
+</nmaprun>
+"""
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        output = discovery_xml if len(calls) == 1 else inventory_xml
+        return type("Completed", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+
+    monkeypatch.setattr("network.deep_scan.nmap_available", lambda: True)
+    monkeypatch.setattr("network.deep_scan.privileged", lambda: False)
+    monkeypatch.setattr("network.deep_scan.subprocess.run", fake_run)
+
+    report = run_deep_scan("192.168.1.0/24", include_udp=False, include_os=False)
+
+    assert report.hosts[0].ip == "192.168.1.21"
+    assert len(calls) == 2
+    assert "-sn" in calls[0][0]
+    assert "-Pn" in calls[1][0]
+    assert calls[1][0][-2:] == ["-iL", "-"]
+    assert calls[1][1]["input"] == "192.168.1.21\n"
+
+
+def test_deep_scan_skips_expensive_inventory_when_no_hosts_are_up(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return type("Completed", (), {
+            "returncode": 0,
+            "stdout": """<?xml version="1.0"?><nmaprun>
+              <host><status state="down"/><address addr="192.168.1.21" addrtype="ipv4"/></host>
+            </nmaprun>""",
+            "stderr": "",
+        })()
+
+    monkeypatch.setattr("network.deep_scan.nmap_available", lambda: True)
+    monkeypatch.setattr("network.deep_scan.privileged", lambda: False)
+    monkeypatch.setattr("network.deep_scan.subprocess.run", fake_run)
+
+    report = run_deep_scan("192.168.1.0/24", include_udp=False, include_os=False)
+
+    assert report.hosts == ()
+    assert len(calls) == 1
+    assert any("canlı cihaz bulamadı" in warning for warning in report.warnings)
