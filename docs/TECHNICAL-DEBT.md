@@ -62,9 +62,9 @@ Status markers:
 - [ ] Keep periodic discovery as a safety reconciliation mechanism.
 
 ### P1.3 Atomic nftables updates
-- [ ] Replace destructive table recreation with atomic named-set element updates.
-- [ ] Preserve counters and unrelated NetFather state across policy changes.
-- [ ] Keep rollback behavior explicit and testable.
+- [x] Replace destructive table recreation with atomic named-set element updates.
+- [x] Preserve existing NetFather table/chains and their counters across normal policy-set changes.
+- [ ] Keep rollback behavior explicit and testable; full failure/recovery integration coverage remains.
 
 ### P1.4 Existing-flow handling
 - [ ] Define conntrack behavior for policy changes.
@@ -76,10 +76,10 @@ Status markers:
 - [ ] Add broader tests proving configuration changes alter reconciliation behavior.
 
 ### P1.6 Deep inventory
-- [ ] Use host discovery to bound deep scans before expensive TCP/UDP/version/OS probes.
-- [ ] Avoid broad -Pn scans over large local subnets by default.
-- [ ] Surface skipped capabilities and warnings in DiscoverySnapshot and the GUI.
-- [ ] Keep deep inventory local-network bounded and free of default NSE scripts.
+- [x] Use a lightweight Nmap host-discovery pass to bound deep scans before expensive TCP/UDP/version/OS probes.
+- [x] Avoid broad -Pn deep probes over large local subnets; the expensive pass receives only discovered live hosts through stdin.
+- [~] Surface skipped capabilities and warnings in DiscoverySnapshot and the GUI; the deep-scan report now carries warnings, but end-to-end GUI presentation still needs completion.
+- [x] Keep deep inventory local-network bounded and free of default NSE scripts.
 
 ### P1.7 Additional discovery sources
 - [ ] IPv6/NDP.
