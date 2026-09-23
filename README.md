@@ -18,61 +18,97 @@ NetFather is designed to:
 
 ## Current status
 
-NetFather 0.5.0 is in active GTK4 application development.
+NetFather 0.5.0 is in active hardening and GTK4 application development.
 
-The project is intentionally **not yet a finished traffic-enforcement product**. Device discovery, identity, profiles, rules, policy evaluation, live presence foundations, monitoring, and an nftables backend exist, but the complete production path from persistent device identity to safe real-network enforcement is still being hardened and integration-tested.
+The project is **not yet a finished traffic-enforcement appliance**. Discovery, identity, profiles, rules, policy evaluation, live-presence foundations, monitoring, and an nftables backend exist, but the complete production path from persistent device identity to safe real-network enforcement is still being integration-tested.
 
-Current engineering priorities are tracked in [docs/TECHNICAL-DEBT.md](docs/TECHNICAL-DEBT.md). The highest-priority work is CI/enforcement reliability, persistent identity, live event propagation, safe nftables updates, privileged-service separation, and end-to-end integration testing.
+The current hardening checklist is maintained in [docs/TECHNICAL-DEBT.md](docs/TECHNICAL-DEBT.md). Work is performed in priority order, with firewall correctness, enforcement topology, policy semantics, identity persistence, live events, and privileged-service separation treated as security-sensitive areas.
 
-The current implementation includes:
+Current implementation includes:
 
 - GTK4 application shell with animated workspace navigation;
 - shared application state and GTK-safe background task handling;
-- a dashboard control center with live network, device, policy, and traffic summaries;
+- dashboard control center with network, device, policy, and traffic summaries;
 - Linux network interface information;
 - passive, active, hybrid, and optional deep local-network discovery;
 - Scapy-based ARP discovery;
 - Linux `ip neigh` neighbor-state discovery;
 - optional Nmap TCP/UDP service inventory and service-version detection;
-- optional Nmap OS fingerprinting with a bounded local-network scan;
-- optional per-scan authorization through `pkexec` so the whole GTK application does not run as root;
+- optional Nmap OS fingerprinting with bounded local-network targets;
+- optional per-scan authorization through `pkexec`;
 - hostname, vendor, device-type, and OS-hint enrichment;
-- stable device identity resolution independent of the current IP;
+- stable in-memory identity resolution independent of the current IP;
 - automatic discovery reconciliation through the device manager;
 - functional GTK4 Network Discovery and Devices workspaces;
 - live gateway-centered Network Topology workspace;
-- Profiles and Rules workspaces connected to the existing backend managers;
-- a shared application Policy Service for effective policy snapshots;
+- Profiles and Rules workspaces connected to backend managers;
+- shared Policy Service for effective policy snapshots;
 - live GTK4 Monitoring workspace backed by Linux interface counters;
-- GTK4 Events workspace backed by the persistent audit/event history;
+- GTK4 Events workspace backed by persistent audit/event history;
 - SQLite persistence through SQLAlchemy;
 - Linux nftables firewall backend;
 - policy, scheduler, firewall, monitoring, and event foundations that are being connected incrementally toward real traffic enforcement.
 
-Real packet-level enforcement is deliberately not presented as complete until it is fully wired, guarded, and integration-tested.
+Real packet-level enforcement is deliberately **not** presented as complete until the enforcement path, deployment topology, identity handling, recovery behavior, and integration tests are all validated.
+
+## Network enforcement model
+
+Discovery and enforcement are separate concepts.
+
+A normal Linux desktop running NetFather can discover devices on its local network, but that does **not** automatically give it control over those devices' internet traffic. To enforce another device's traffic, NetFather must run at a valid traffic enforcement point, for example:
+
+- the Linux gateway/router for the managed LAN;
+- a Linux bridge/router through which the managed traffic actually passes;
+- another explicitly supported inline enforcement topology.
+
+The current nftables backend installs rules in NetFather's dedicated `inet netfather` table. It does not flush unrelated firewall tables. The project is moving toward persistent named sets and event-driven updates rather than rebuilding the whole table for every policy change.
+
+The default configuration keeps enforcement disabled. Do not enable enforcement on a production network until the deployment topology and recovery behavior have been verified.
 
 ## Discovery modes
 
-The Discovery workspace is intentionally layered:
+The Discovery workspace is layered:
 
-- **Passive** — read the Linux neighbor table without actively probing the network.
-- **Active ARP** — use Scapy Ethernet/ARP discovery to find local IPv4 hosts that are not already known by the kernel.
-- **Hybrid** — combine passive neighbor state and active ARP discovery, then enrich and reconcile identities.
-- **Deep inventory** — combine the local discovery layers with Nmap service/version discovery and optional TCP/UDP/OS fingerprinting. The deep mode is restricted to private or link-local IPv4 networks and currently refuses networks broader than `/16`.
+- **Passive** — read the Linux neighbor table without active probing.
+- **Active ARP** — use Scapy Ethernet/ARP discovery for local IPv4 hosts.
+- **Hybrid** — combine passive neighbor state and active ARP discovery, then reconcile identities.
+- **Deep inventory** — combine local discovery with optional Nmap service/version, UDP, and OS probing.
 
-Deep inventory does not enable Nmap NSE/default scripts. This keeps the feature focused on network inventory rather than vulnerability scanning and avoids turning the normal discovery workflow into an intrusive script runner.
+Deep inventory is restricted to private or link-local IPv4 networks and currently refuses networks broader than `/16`. Expensive deep probes are intended to be applied only to discovered live hosts as the scanning pipeline matures.
 
-Nmap is optional for the base application. If it is not installed, the normal discovery modes continue to work. For Arch/CachyOS, install it with:
+Deep inventory does not enable Nmap NSE/default scripts. The feature is for network inventory, not vulnerability scanning.
+
+Nmap is optional for the base application. If it is not installed, normal discovery modes continue to work. For Arch/CachyOS:
 
 ```bash
 sudo pacman -S --needed nmap
 ```
 
+## Live network presence
+
+Linux neighbor notifications through `ip monitor neigh` provide a fast presence signal. NetFather debounces those events and currently uses discovery reconciliation as the safety path for updating persistent device state.
+
+The longer-term design is:
+
+```text
+kernel neighbor event
+        |
+        v
+direct presence state transition
+        |
+        +----> runtime event bus
+        |
+        +----> persistent device/event state
+        |
+        v
+periodic discovery safety reconciliation
+```
+
+This avoids treating a single transient neighbor-cache event as authoritative.
+
 ## GTK4 GUI direction
 
-The application UI is being built as a clean, user-friendly desktop control center.
-
-The target is:
+The target UI is:
 
 - clear and easy to understand;
 - option-rich without becoming confusing;
@@ -106,13 +142,13 @@ Windows and macOS are not project targets.
 - optional Nmap for deep inventory
 - optional polkit/pkexec for per-scan elevation
 
-For CachyOS / Arch Linux, install the main system dependencies with:
+For CachyOS / Arch Linux:
 
 ```bash
 sudo pacman -S --needed python gtk4 python-gobject iproute2 nftables nmap polkit
 ```
 
-Then install the Python project in an isolated environment according to your preferred Python workflow. The project dependencies are declared in `pyproject.toml`.
+Then install the Python project in an isolated environment according to your preferred Python workflow. Dependencies are declared in `pyproject.toml`.
 
 ## Running
 
@@ -122,21 +158,23 @@ From the project directory:
 python -m gui.app
 ```
 
-If the project is installed as a package, the `netfather` entry point also launches the GTK4 application:
+If installed as a package:
 
 ```bash
 netfather
 ```
 
-Some network discovery and traffic-enforcement operations require appropriate Linux privileges. Deep discovery can request authorization only for the Nmap process rather than running the whole GUI as root.
+Some discovery and enforcement operations require appropriate Linux privileges. Deep discovery can request authorization only for the Nmap process rather than running the whole GUI as root.
 
 ## Testing
 
-Run the test suite with:
+Run the normal suite with:
 
 ```bash
 python -m pytest -q
 ```
+
+The CI pipeline also contains a Linux nftables/network-namespace integration test. A green Python unit-test matrix is not considered sufficient evidence of firewall correctness.
 
 ## Architecture
 
@@ -157,7 +195,7 @@ Devices          Discovery        Policies
           +---------+---------+
                     |
                     v
-             Identity / Presence
+          Identity / Presence
                     |
                     v
              Enforcement
@@ -166,7 +204,12 @@ Devices          Discovery        Policies
 
 The long-term GUI will use GTK4/Libadwaita patterns where they improve adaptive navigation, accessibility, and desktop integration. The current GTK4 stack already uses non-blocking background work and lightweight page transitions.
 
-See `docs/architecture/network-discovery-stack.md` for the discovery design and its future extension points.
+See:
+
+- [docs/architecture/network-discovery-stack.md](docs/architecture/network-discovery-stack.md)
+- [docs/architecture/live-network-presence.md](docs/architecture/live-network-presence.md)
+- [docs/TECHNICAL-DEBT.md](docs/TECHNICAL-DEBT.md)
+- [SECURITY.md](SECURITY.md)
 
 ## Development focus
 
