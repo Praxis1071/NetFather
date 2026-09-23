@@ -1,4 +1,4 @@
-from network.deep_scan import _parse_nmap_xml, _validate_local_target
+from network.deep_scan import _parse_nmap_xml, _validate_local_target, run_deep_scan
 
 
 def test_deep_scan_rejects_non_local_targets() -> None:
