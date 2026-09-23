@@ -18,10 +18,11 @@ def test_existing_nftables_table_is_updated_without_recreation(monkeypatch) -> N
     assert result.applied is True
     assert result.blocked_ips == ("192.168.1.21", "192.168.1.22")
     scripts = [text for _, text in calls if text]
-    assert len(scripts) == 2
-    assert "flush set inet netfather blocked4" in scripts[0]
-    assert "add element inet netfather blocked4 { 192.168.1.21, 192.168.1.22 }" in scripts[0]
-    assert scripts[0] == scripts[1]
+    assert len(scripts) == 3
+    assert "table inet netfather_check" in scripts[0]
+    assert "flush set inet netfather blocked4" in scripts[1]
+    assert "add element inet netfather blocked4 { 192.168.1.21, 192.168.1.22 }" in scripts[1]
+    assert scripts[1] == scripts[2]
     assert not any("delete table" in (text or "") for _, text in calls)
 
 
@@ -40,7 +41,8 @@ def test_existing_nftables_table_can_be_cleared_without_recreation(monkeypatch) 
     assert result.applied is True
     assert result.blocked_ips == ()
     scripts = [text for _, text in calls if text]
-    assert scripts == [
+    assert scripts[0].startswith("table inet netfather_check")
+    assert scripts[1:] == [
         "flush set inet netfather blocked4\\n",
         "flush set inet netfather blocked4\\n",
     ]
