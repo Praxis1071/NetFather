@@ -10,9 +10,10 @@ Status markers:
 ## P0 — correctness and safety
 
 ### P0.1 CI enforcement integration failure
-- [ ] Identify and fix the failing nftables network-namespace integration job.
-- [~] Added an explicit privileged prerequisite probe and verbose test output so the runner failure is diagnosable.
-- [ ] Re-run the complete CI matrix after the test environment issue is understood.
+- [~] Root cause identified: the generated nftables base-chain rules were missing statement terminators before closing braces, so nft rejected the ruleset in the namespace integration test.
+- [x] Corrected the nftables ruleset generator to emit valid multi-line chain syntax.
+- [~] Added an explicit privileged prerequisite probe and verbose test output so runner failures remain diagnosable.
+- [ ] Confirm the corrected ruleset with a green complete CI matrix.
 - [ ] Do not treat unit-test success as sufficient for firewall correctness.
 
 ### P0.2 Linux-only diagnostics compatibility
