@@ -39,32 +39,4 @@ def test_discovery_service_is_single_flight(monkeypatch) -> None:
         raise AssertionError("Concurrent discovery should be rejected")
 
 
-def test_discovery_service_subscription_can_change_during_callback() -> None:
-    service = DiscoveryService()
-    calls: list[str] = []
-    holder: dict[str, object] = {}
-
-    def first(_snapshot) -> None:
-        calls.append("first")
-        unsubscribe = holder.get("unsubscribe")
-        if callable(unsubscribe):
-            unsubscribe()
-
-    holder["unsubscribe"] = service.subscribe(first)
-    service.subscribe(lambda _snapshot: calls.append("second"))
-
-    snapshot = service._snapshot
-    assert snapshot is None
-
-    # Exercise the listener dispatch without invoking an external scan.
-    service._snapshot = type("Snapshot", (), {})()
-    with service._lock:
-        listeners = tuple(service._listeners)
-    for callback in listeners:
-        callback(service._snapshot)
-
-    with service._lock:
-        remaining = tuple(service._listeners)
-
-    assert calls == ["first", "second"]
-    assert len(remaining) == 1
+def test_discovery_service_subscription_can_change_during_callback(monkeypatch) -> None:\n    service = DiscoveryService()\n    calls: list[str] = []\n    holder: dict[str, object] = {}\n\n    def first(_snapshot) -> None:\n        calls.append("first")\n        unsubscribe = holder.get("unsubscribe")\n        if callable(unsubscribe):\n            unsubscribe()\n\n    holder["unsubscribe"] = service.subscribe(first)\n    service.subscribe(lambda _snapshot: calls.append("second"))\n    monkeypatch.setattr("network.discovery_service.scan_network", lambda *args, **kwargs: [])\n\n    snapshot = service.scan(mode="passive")\n\n    assert snapshot.error is None\n    assert calls == ["first", "second"]\n    with service._lock:\n        assert len(service._listeners) == 1\n
