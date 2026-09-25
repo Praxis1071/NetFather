@@ -12,7 +12,7 @@ import re
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from core.exceptions import DeviceNotFoundError, DuplicateDeviceError, Validatio
 from core.logger import get_logger
 from core.time_utils import utc_now
 from models.device import Device
+from models.device_observation import DeviceObservationRecord
 from models.event import Event
 from network.device import lookup_vendor, normalize_mac
 
@@ -45,6 +46,45 @@ class DeviceManager:
     @staticmethod
     def _find_by_mac(session: Session, mac: str) -> Device | None:
         return session.scalar(select(Device).where(Device.mac == normalize_mac(mac)))
+
+    @staticmethod
+    def _record_observation(session: Session, device: Device, host: "DiscoveredHost", observed_at: dt.datetime) -> None:
+        """Persist a new identity observation without duplicating unchanged polls."""
+        source = (getattr(host, "source", None) or "unknown").strip().lower() or "unknown"
+        ip = getattr(host, "ip", None)
+        latest = session.scalar(
+            select(DeviceObservationRecord)
+            .where(
+                DeviceObservationRecord.device_id == device.id,
+                DeviceObservationRecord.ip == ip,
+                DeviceObservationRecord.source == source,
+            )
+            .order_by(desc(DeviceObservationRecord.observed_at))
+            .limit(1)
+        )
+        if latest is not None:
+            return
+        confidence = 0.95 if "active" in source else 0.8
+        if "deep" in source:
+            confidence = min(1.0, confidence + 0.03)
+        if getattr(host, "hostname", None):
+            confidence = min(1.0, confidence + 0.03)
+        if getattr(host, "vendor", None):
+            confidence = min(1.0, confidence + 0.02)
+        session.add(
+            DeviceObservationRecord(
+                device_id=device.id,
+                ip=ip,
+                interface=getattr(host, "interface", None),
+                hostname=getattr(host, "hostname", None),
+                vendor=getattr(host, "vendor", None),
+                device_type=getattr(host, "device_type", None),
+                os_hint=getattr(host, "os_hint", None),
+                source=source,
+                confidence=confidence,
+                observed_at=observed_at,
+            )
+        )
 
     @staticmethod
     def _require_by_name(session: Session, name: str) -> Device:
@@ -267,10 +307,14 @@ class DeviceManager:
                 if device is None:
                     continue
                 was_online = bool(device.online)
+                previous_ip = device.ip
                 device.last_seen = now
                 device.online = True
                 if host.ip:
                     device.ip = host.ip
+                DeviceManager._record_observation(session, device, host, now)
+                if host.ip and previous_ip and previous_ip != host.ip:
+                    session.add(Event(event_type="device_ip_changed", description=f"{device.name} IP changed: {previous_ip} -> {host.ip}", device_mac=device.mac))
                 if host.vendor:
                     device.vendor = host.vendor
                 if getattr(host, "hostname", None):
@@ -328,10 +372,15 @@ class DeviceManager:
                                     os_hint=getattr(host, "os_hint", None), online=True,
                                     auto_registered=True, created_at=now, last_seen=now)
                     session.add(device); session.flush(); new_count += 1
+                    self._record_observation(session, device, host, now)
                     session.add(Event(event_type="device_discovered", description=f"Yeni cihaz keşfedildi: {device.name}", device_mac=mac))
                     continue
                 was_online = bool(device.online)
+                previous_ip = device.ip
                 device.ip = host.ip or device.ip
+                self._record_observation(session, device, host, now)
+                if host.ip and previous_ip and previous_ip != host.ip:
+                    session.add(Event(event_type="device_ip_changed", description=f"{device.name} IP changed: {previous_ip} -> {host.ip}", device_mac=device.mac))
                 device.vendor = host.vendor or device.vendor
                 device.hostname = getattr(host, "hostname", None) or device.hostname
                 device.os_hint = getattr(host, "os_hint", None) or device.os_hint
