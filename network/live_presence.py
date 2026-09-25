@@ -53,10 +53,12 @@ class LivePresenceService:
             safety_timer = self._safety_timer
             self._event_timer = None
             self._safety_timer = None
-        if event_timer is not None:
-            event_timer.cancel()
-        if safety_timer is not None:
-            safety_timer.cancel()
+        for timer in (event_timer, safety_timer):
+            if timer is None:
+                continue
+            timer.cancel()
+            if timer is not threading.current_thread():
+                timer.join(timeout=5)
 
     def _on_presence_event(self, event: PresenceEvent) -> None:
         if self._stopped:
