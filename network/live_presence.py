@@ -26,7 +26,8 @@ class LivePresenceService:
         self.auto_register = auto_register
         self.offline_after_seconds = max(1, offline_after_seconds)
         self.on_reconciled = on_reconciled
-        self.discovery = DiscoveryService(device_manager=DeviceManager(database))
+        self.device_manager = DeviceManager(database)
+        self.discovery = DiscoveryService(device_manager=self.device_manager)
         self.monitor = PresenceMonitor(self._on_presence_event)
         self._lock = threading.Lock()
         self._event_timer: threading.Timer | None = None
@@ -57,9 +58,15 @@ class LivePresenceService:
         if safety_timer is not None:
             safety_timer.cancel()
 
-    def _on_presence_event(self, _event: PresenceEvent) -> None:
+    def _on_presence_event(self, event: PresenceEvent) -> None:
         if self._stopped:
             return
+        if event.mac and event.kind in {"added", "removed"}:
+            self.device_manager.update_presence(
+                event.mac,
+                online=event.kind == "added",
+                ip=event.address,
+            )
         with self._lock:
             if self._event_timer is not None and self._event_timer.is_alive():
                 return
