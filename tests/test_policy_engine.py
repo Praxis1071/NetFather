@@ -63,3 +63,21 @@ def test_unrestricted_profile_allows_by_default(tmp_path: Path) -> None:
     assert policy.allowed is True
     assert policy.reason == "default-allow"
     db.close()
+
+
+def test_blocked_target_tracks_dhcp_ip_change(tmp_path: Path) -> None:
+    from network.discovery import DiscoveredHost
+
+    db = make_db(tmp_path)
+    devices = DeviceManager(db)
+    devices.add_device("Tablet", "02:00:00:00:00:03", ip="192.168.1.21")
+    ProfileManager(db).create_profile("Tablet", "Child", internet_mode="blocked")
+
+    assert PolicyEngine(db).blocked_ips() == ["192.168.1.21"]
+
+    devices.reconcile_discovery(
+        [DiscoveredHost(ip="192.168.1.77", mac="02:00:00:00:00:03", source="active")]
+    )
+
+    assert PolicyEngine(db).blocked_ips() == ["192.168.1.77"]
+    db.close()
