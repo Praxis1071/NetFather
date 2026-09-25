@@ -56,7 +56,7 @@ Status markers:
 ### P1.2 Live presence and event propagation
 - [~] Linux neighbor notifications are already monitored and debounced.
 - [~] Current presence events trigger discovery reconciliation.
-- [ ] Turn safe neighbor events into direct device state transitions.
+- [x] Turn safe neighbor events into direct device state transitions for known MAC-backed devices; discovery reconciliation remains the safety path.
 - [ ] Add a central runtime event bus.
 - [~] Emit and persist device discovery, online/offline, and DHCP/IP-change events; the full canonical event taxonomy and central event bus remain open.
 - [ ] Keep periodic discovery as a safety reconciliation mechanism.
