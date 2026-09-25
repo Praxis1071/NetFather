@@ -32,7 +32,6 @@ NetFather owns the dedicated Linux nftables table named `netfather`. It must not
 
 The current backend still has hardening work outstanding:
 
-- replace destructive table recreation with atomic named-set element updates;
 - preserve counters and NetFather state across policy changes;
 - handle policy changes for existing connections through an explicit conntrack strategy;
 - protect the NetFather management path from self-lockout;
@@ -100,7 +99,7 @@ Current behavior:
 - discovery reconciliation updates persistent device state;
 - periodic discovery remains the safety mechanism.
 
-The target architecture will additionally provide direct state transitions and a central runtime event bus, while retaining periodic reconciliation to recover from missed notifications.
+Known-device neighbor events now apply direct state transitions, while debounced discovery reconciliation and periodic scans remain the safety mechanisms. A central runtime event bus is still planned.
 
 ## Known security work in progress
 
