@@ -191,7 +191,7 @@ def test_manual_ip_change_is_persisted(manager: DeviceManager) -> None:
 def test_delete_device_cascades_observation_history(manager: DeviceManager) -> None:
     manager.reconcile_discovery(
         [
-            __import__("network.discovery", fromlist=["DiscoveredHost"]).DiscoveredHost(
+            DiscoveredHost(
                 ip="192.168.1.40",
                 mac="AA:BB:CC:DD:EE:40",
                 source="active",
