@@ -42,7 +42,12 @@ class MonitoringPage(Gtk.Box):
         heading.set_margin_top(12); value.set_margin_bottom(12); box.append(heading); box.append(value); grid.attach(box, col, row, 1, 1)
         return value
 
-    def _scheduled_refresh(self) -> bool:
+    def cleanup(self) -> None:
+        """Stop the live-refresh timer when the window closes."""
+        if self._timer is not None:
+            GLib.source_remove(self._timer)
+            self._timer = None
+
         if not self._busy and self.pause_button.get_label() == "Pause live refresh": self.refresh()
         return GLib.SOURCE_CONTINUE
 
