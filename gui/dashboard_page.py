@@ -111,7 +111,13 @@ class DashboardPage(Gtk.Box):
         self.refresh()
         self._refresh_source = GLib.timeout_add_seconds(5, self._scheduled_refresh)
 
-    def _scheduled_refresh(self) -> bool:
+    def cleanup(self) -> None:
+        """Stop page-owned GTK timers when the window closes."""
+        if self._refresh_source is not None:
+            GLib.source_remove(self._refresh_source)
+            self._refresh_source = None
+        self._stop_pulse()
+
         if self.get_root() is None:
             self._refresh_source = None
             return GLib.SOURCE_REMOVE
