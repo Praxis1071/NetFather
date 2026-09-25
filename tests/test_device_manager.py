@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sqlalchemy import select
+
 import pytest
 
 from core.database import Database
 from core.exceptions import DeviceNotFoundError, DuplicateDeviceError, ValidationError
 from manager.device_manager import DeviceManager
+from models.device_observation import DeviceObservationRecord
 
 
 @pytest.fixture
@@ -131,3 +134,39 @@ def test_sync_discovered_hosts_updates_only_registered(manager: DeviceManager) -
     assert device.ip == "192.168.1.20"
     assert device.vendor == "Vendor A"
     assert device.last_seen is not None
+
+
+def test_reconcile_persists_ip_history_and_survives_database_reopen(tmp_path: Path) -> None:
+    from network.discovery import DiscoveredHost
+
+    db_path = tmp_path / "identity-history.db"
+    db = Database(db_path)
+    db.init_db()
+    manager = DeviceManager(db)
+
+    manager.reconcile_discovery(
+        [DiscoveredHost(ip="192.168.1.20", mac="AA:BB:CC:DD:EE:20", source="active")]
+    )
+    manager.reconcile_discovery(
+        [DiscoveredHost(ip="192.168.1.42", mac="AA:BB:CC:DD:EE:20", source="active")]
+    )
+
+    with db.session() as session:
+        observations = list(
+            session.scalars(
+                select(DeviceObservationRecord).order_by(DeviceObservationRecord.observed_at)
+            ).all()
+        )
+        assert [item.ip for item in observations] == ["192.168.1.20", "192.168.1.42"]
+
+    device = manager.get_device_by_mac("AA:BB:CC:DD:EE:20")
+    assert device is not None
+    assert device.ip == "192.168.1.42"
+    db.close()
+
+    reopened = Database(db_path)
+    reopened.init_db()
+    with reopened.session() as session:
+        observations = list(session.scalars(select(DeviceObservationRecord)).all())
+        assert {item.ip for item in observations} == {"192.168.1.20", "192.168.1.42"}
+    reopened.close()
