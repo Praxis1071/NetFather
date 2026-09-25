@@ -12,7 +12,8 @@ from core.privileges import detect_privileges
 from gui.dashboard_page import DashboardPage
 from gui.events_page import EventsPage
 from gui.monitoring_page import MonitoringPage
-from gui.pages import DevicesPage, DiscoveryPage
+from gui.devices_page import DevicesPage
+from gui.discovery_page import DiscoveryPage
 from gui.profiles_page import ProfilesPage
 from gui.rules_page import RulesPage
 from gui.state import ApplicationState
