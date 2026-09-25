@@ -32,9 +32,9 @@ Status markers:
 - [x] Add policy precedence tests.
 
 ### P0.5 Enforcement identity
-- [ ] Stop treating a current IPv4 address as the durable identity of a device.
-- [ ] Connect persistent device identity/history to enforcement targets.
-- [ ] Update enforcement safely when DHCP changes a device IP.
+- [~] Stop treating a current IPv4 address as the durable identity of a device; MAC-backed identity now has a persistent observation history, while randomized Wi-Fi MAC handling remains open.
+- [x] Connect persistent device identity/history to enforcement targets by recording MAC/IP observations and deriving current enforcement targets from the device's current IP.
+- [x] Update enforcement safely when DHCP changes a device IP; discovery reconciliation records the new address and policy evaluation follows the updated target.
 
 ### P0.6 Self-lockout protection
 - [x] Firewall sync refuses to install blocks for all detected local IPv4 addresses and the detected gateway IPv4 address.
@@ -49,8 +49,8 @@ Status markers:
 ## P1 — core network architecture
 
 ### P1.1 Persistent identity
-- [ ] Persist MAC/IP history, identity observations, confidence, and discovery sources.
-- [ ] Preserve identity across application restarts.
+- [x] Persist MAC/IP history, identity observations, confidence, and discovery sources in `device_observations`.
+- [x] Preserve the recorded identity/IP history across application restarts.
 - [ ] Account for randomized Wi-Fi MAC addresses where evidence permits.
 
 ### P1.2 Live presence and event propagation
@@ -58,12 +58,13 @@ Status markers:
 - [~] Current presence events trigger discovery reconciliation.
 - [ ] Turn safe neighbor events into direct device state transitions.
 - [ ] Add a central runtime event bus.
-- [ ] Emit and persist NEW_DEVICE_DETECTED, DEVICE_ONLINE, DEVICE_OFFLINE, DEVICE_CHANGED, DEVICE_IDENTITY_UPDATED, and policy/enforcement events consistently.
+- [~] Emit and persist device discovery, online/offline, and DHCP/IP-change events; the full canonical event taxonomy and central event bus remain open.
 - [ ] Keep periodic discovery as a safety reconciliation mechanism.
 
 ### P1.3 Atomic nftables updates
 - [x] Replace destructive table recreation with atomic named-set element updates.
 - [x] Preserve existing NetFather table/chains and their counters across normal policy-set changes.
+- [x] Fix the escaped-newline regression in the multi-command nftables transaction and add exact line-structure regression coverage.
 - [ ] Keep rollback behavior explicit and testable; full failure/recovery integration coverage remains.
 
 ### P1.4 Existing-flow handling
