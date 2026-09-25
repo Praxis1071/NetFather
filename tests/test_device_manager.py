@@ -170,3 +170,35 @@ def test_reconcile_persists_ip_history_and_survives_database_reopen(tmp_path: Pa
         observations = list(session.scalars(select(DeviceObservationRecord)).all())
         assert {item.ip for item in observations} == {"192.168.1.20", "192.168.1.42"}
     reopened.close()
+
+
+def test_manual_ip_change_is_persisted(manager: DeviceManager) -> None:
+    manager.add_device("Laptop", "AA:BB:CC:DD:EE:30", ip="192.168.1.30")
+
+    manager.update_last_seen("AA:BB:CC:DD:EE:30", ip="192.168.1.31")
+
+    with manager.db.session() as session:
+        observations = list(
+            session.scalars(
+                select(DeviceObservationRecord).where(
+                    DeviceObservationRecord.ip.in_(["192.168.1.30", "192.168.1.31"])
+                )
+            ).all()
+        )
+    assert {item.ip for item in observations} == {"192.168.1.30", "192.168.1.31"}
+
+
+def test_delete_device_cascades_observation_history(manager: DeviceManager) -> None:
+    manager.reconcile_discovery(
+        [
+            __import__("network.discovery", fromlist=["DiscoveredHost"]).DiscoveredHost(
+                ip="192.168.1.40",
+                mac="AA:BB:CC:DD:EE:40",
+                source="active",
+            )
+        ]
+    )
+    manager.delete_device("Device-ee40")
+
+    with manager.db.session() as session:
+        assert session.scalars(select(DeviceObservationRecord)).all() == []
