@@ -17,6 +17,9 @@ class DevicesPage(BasePage):
         detail=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=12); detail.set_margin_start(24); detail.set_margin_end(8); detail.set_vexpand(True); content.set_end_child(detail); self.detail_title=Gtk.Label(label="Select a device",xalign=0); self.detail_title.add_css_class("title-2"); detail.append(self.detail_title); self.detail_status=Gtk.Label(xalign=0,wrap=True); self.detail_status.add_css_class("dim-label"); detail.append(self.detail_status); self.name_entry=Gtk.Entry(); self.ip_entry=Gtk.Entry(); self.vendor_entry=Gtk.Entry(); self.type_entry=Gtk.Entry(); self.name_entry.set_placeholder_text("Device name"); self.ip_entry.set_placeholder_text("Current IP"); self.vendor_entry.set_placeholder_text("Vendor"); self.type_entry.set_placeholder_text("unknown")
         for label,entry in (("Name",self.name_entry),("IP address",self.ip_entry),("Vendor",self.vendor_entry),("Device type",self.type_entry)):detail.append(self._field(label,entry))
         self.save_button=Gtk.Button(label="Save changes"); self.save_button.add_css_class("suggested-action"); self.save_button.connect("clicked",self._save); detail.append(self.save_button); self.delete_button=Gtk.Button(label="Delete device"); self.delete_button.add_css_class("destructive-action"); self.delete_button.connect("clicked",self._delete); detail.append(self.delete_button); self.message=Gtk.Label(xalign=0,wrap=True); detail.append(self.message); self._set_detail(None); self.refresh()
+    def cleanup(self)->None:
+        self._unsubscribe()
+
     @staticmethod
     def _field(label:str,widget:Gtk.Widget)->Gtk.Box:
         box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=4); heading=Gtk.Label(label=label,xalign=0); heading.add_css_class("caption-heading"); box.append(heading); box.append(widget); return box
