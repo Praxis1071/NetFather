@@ -337,6 +337,7 @@ class DeviceManager:
                 return False
             now = utc_now()
             if online:
+                was_online = device.online
                 previous_ip = device.ip
                 device.online = True
                 device.last_seen = now
@@ -354,7 +355,7 @@ class DeviceManager:
                         confidence=0.9,
                         observed_at=now,
                     ))
-                if not device.online:
+                if not was_online:
                     session.add(Event(
                         event_type="device_online",
                         description=f"{device.name} ağa katıldı",
