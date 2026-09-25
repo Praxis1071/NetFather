@@ -23,7 +23,7 @@ def test_nftables_policy_applies_to_an_existing_tcp_connection():
     server_script = (
         "import socket,time\n"
         f"s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(('10.203.0.2',{port})); s.listen(1); "
-        "s.settimeout(8); "
+        "s.settimeout(6); "
         f"open('{ready}','w').close(); c,_=s.accept(); c.settimeout(2); "
         "data=[]\n"
         "while True:\n"
