@@ -7,7 +7,7 @@ from core.time_utils import utc_now
 from manager.event_manager import EventManager
 from manager.policy_engine import PolicyEngine
 from firewall.backends import get_firewall_backend
-from network.interface import get_network_status
+from network.interface import get_local_ipv4_addresses, get_network_status
 
 
 class FirewallEngine:
@@ -22,9 +22,8 @@ class FirewallEngine:
         """Return local management-path IPv4 addresses that must never be blocked."""
         status = get_network_status()
         return {
-            value
-            for value in (status.local_ip, status.gateway)
-            if value
+            *get_local_ipv4_addresses(),
+            *{value for value in (status.local_ip, status.gateway) if value},
         }
 
     def sync(self, *, apply: bool | None = None):
