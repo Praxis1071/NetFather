@@ -46,3 +46,12 @@ def test_invalid_firewall_enforcement_topology_raises(tmp_path: Path, isolated_d
 ', encoding="utf-8")
     with pytest.raises(ConfigError):
         config_module.load_config(path)
+
+
+def test_save_config_persists_firewall_enforcement_topology(tmp_path: Path, isolated_data_dir: Path) -> None:
+    path = tmp_path / "config.toml"
+    cfg = config_module.load_config(path)
+    cfg.firewall.enforcement_topology = "gateway"
+    config_module.save_config(cfg)
+    loaded = config_module.load_config(path)
+    assert loaded.firewall.enforcement_topology == "gateway"
