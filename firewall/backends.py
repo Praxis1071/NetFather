@@ -81,7 +81,7 @@ class NftablesBackend(FirewallBackend):
                 f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\\n"
             )
         else:
-            update_script = f"flush set inet {self.table} blocked4\\n"
+            update_script = f"flush set inet {self.table} blocked4\n"
         checked_update = _run([nft, "-c", "-f", "-"], input_text=update_script)
         if checked_update.returncode != 0:
             raise RuntimeError(f"nft validation failed: {checked_update.stderr.strip()}")
