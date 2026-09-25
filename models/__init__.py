@@ -24,8 +24,9 @@ from __future__ import annotations
 
 from models.base import Base
 from models.device import Device
+from models.device_observation import DeviceObservationRecord
 from models.event import Event
 from models.profile import Profile
 from models.rule import Rule
 
-__all__ = ["Base", "Device", "Event", "Profile", "Rule"]
+__all__ = ["Base", "Device", "DeviceObservationRecord", "Event", "Profile", "Rule"]
