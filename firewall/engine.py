@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from core.config import Config
 from core.database import Database
+from core.exceptions import ConfigError
 from core.time_utils import utc_now
 from manager.event_manager import EventManager
 from manager.policy_engine import PolicyEngine
@@ -26,8 +27,30 @@ class FirewallEngine:
             *{value for value in (status.local_ip, status.gateway) if value},
         }
 
+    @staticmethod
+    def _ipv4_forwarding_enabled() -> bool:
+        try:
+            with open("/proc/sys/net/ipv4/ip_forward", encoding="ascii") as handle:
+                return handle.read().strip() == "1"
+        except OSError:
+            return False
+
+    def _validate_enforcement_topology(self) -> None:
+        topology = self.config.firewall.enforcement_topology
+        if topology in {"unverified", "host"}:
+            raise ConfigError(
+                "Gerçek ağ trafiği enforcement için firewall.enforcement_topology "
+                "gateway veya inline olarak açıkça ayarlanmalıdır."
+            )
+        if topology == "gateway" and not self._ipv4_forwarding_enabled():
+            raise ConfigError(
+                "Gateway enforcement seçildi ancak Linux IPv4 forwarding etkin değil."
+            )
+
     def sync(self, *, apply: bool | None = None):
         should_apply = self.config.firewall.enforcement_enabled if apply is None else apply
+        if should_apply:
+            self._validate_enforcement_topology()
         requested_blocked = PolicyEngine(self.db).blocked_ips()
         protected = self._protected_ips()
         blocked = [ip for ip in requested_blocked if ip not in protected]
