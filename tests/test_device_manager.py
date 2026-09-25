@@ -172,6 +172,46 @@ def test_reconcile_persists_ip_history_and_survives_database_reopen(tmp_path: Pa
     reopened.close()
 
 
+def test_observation_history_records_enrichment_for_same_ip_and_source(tmp_path: Path) -> None:
+    from network.discovery import DiscoveredHost
+
+    db = Database(tmp_path / "observation-enrichment.db")
+    db.init_db()
+    manager = DeviceManager(db)
+
+    manager.reconcile_discovery(
+        [DiscoveredHost(ip="192.168.1.50", mac="AA:BB:CC:DD:EE:50", source="active")]
+    )
+    manager.reconcile_discovery(
+        [
+            DiscoveredHost(
+                ip="192.168.1.50",
+                mac="AA:BB:CC:DD:EE:50",
+                source="active",
+                hostname="tablet.local",
+                vendor="Example Vendor",
+                device_type="tablet",
+                os_hint="Linux",
+            )
+        ]
+    )
+
+    with db.session() as session:
+        observations = list(
+            session.scalars(
+                select(DeviceObservationRecord).order_by(DeviceObservationRecord.id)
+            ).all()
+        )
+
+    assert len(observations) == 2
+    assert observations[0].hostname is None
+    assert observations[1].hostname == "tablet.local"
+    assert observations[1].vendor == "Example Vendor"
+    assert observations[1].device_type == "tablet"
+    assert observations[1].os_hint == "Linux"
+    db.close()
+
+
 def test_manual_ip_change_is_persisted(manager: DeviceManager) -> None:
     manager.add_device("Laptop", "AA:BB:CC:DD:EE:30", ip="192.168.1.30")
 
