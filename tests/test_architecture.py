@@ -29,7 +29,14 @@ def test_retired_cli_tui_trees_are_absent() -> None:
 
 def test_stateful_pages_expose_cleanup_hooks() -> None:
     root = ROOT / "gui"
-    for name in ("base_page.py", "discovery_page.py", "devices_page.py"):
+    for name in (
+        "base_page.py",
+        "discovery_page.py",
+        "devices_page.py",
+        "dashboard_page.py",
+        "monitoring_page.py",
+        "topology_page.py",
+    ):
         text = (root / name).read_text(encoding="utf-8")
         assert "def cleanup(" in text, name
     window = (root / "window.py").read_text(encoding="utf-8")
