@@ -89,6 +89,24 @@ def _linux_network_status() -> NetworkStatus:
     return status
 
 
+def get_local_ipv4_addresses() -> set[str]:
+    """Return all configured global IPv4 addresses on the host."""
+    ip_binary = shutil.which("ip")
+    if ip_binary is None:
+        status = get_network_status()
+        return {status.local_ip} if status.local_ip else set()
+    raw = _run_process([ip_binary, "-o", "-4", "addr", "show", "scope", "global"])
+    if not raw:
+        status = get_network_status()
+        return {status.local_ip} if status.local_ip else set()
+    addresses: set[str] = set()
+    for line in raw.splitlines():
+        match = re.search(r"\binet\s+(\d{1,3}(?:\.\d{1,3}){3})/", line)
+        if match:
+            addresses.add(match.group(1))
+    return addresses
+
+
 def get_network_status() -> NetworkStatus:
     """Return the current Linux IPv4 interface, address and gateway."""
     try:
