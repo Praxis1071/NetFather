@@ -37,3 +37,34 @@ def test_discovery_service_is_single_flight(monkeypatch) -> None:
         assert "zaten çalışıyor" in str(exc)
     else:
         raise AssertionError("Concurrent discovery should be rejected")
+
+
+def test_discovery_service_subscription_can_change_during_callback() -> None:
+    service = DiscoveryService()
+    calls: list[str] = []
+    holder: dict[str, object] = {}
+
+    def first(_snapshot) -> None:
+        calls.append("first")
+        unsubscribe = holder.get("unsubscribe")
+        if callable(unsubscribe):
+            unsubscribe()
+
+    holder["unsubscribe"] = service.subscribe(first)
+    service.subscribe(lambda _snapshot: calls.append("second"))
+
+    snapshot = service._snapshot
+    assert snapshot is None
+
+    # Exercise the listener dispatch without invoking an external scan.
+    service._snapshot = type("Snapshot", (), {})()
+    with service._lock:
+        listeners = tuple(service._listeners)
+    for callback in listeners:
+        callback(service._snapshot)
+
+    with service._lock:
+        remaining = tuple(service._listeners)
+
+    assert calls == ["first", "second"]
+    assert len(remaining) == 1
