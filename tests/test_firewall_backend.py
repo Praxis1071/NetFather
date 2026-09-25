@@ -22,6 +22,10 @@ def test_existing_nftables_table_is_updated_without_recreation(monkeypatch) -> N
     assert "table inet netfather_check" in scripts[0]
     assert "flush set inet netfather blocked4" in scripts[1]
     assert "add element inet netfather blocked4 { 192.168.1.21, 192.168.1.22 }" in scripts[1]
+    assert scripts[1].splitlines() == [
+        "flush set inet netfather blocked4",
+        "add element inet netfather blocked4 { 192.168.1.21, 192.168.1.22 }",
+    ]
     assert scripts[1] == scripts[2]
     assert not any("delete table" in (text or "") for _, text in calls)
 
