@@ -1,7 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from core.config import Config, FirewallConfig
+from core.exceptions import ConfigError
 from core.database import Database
 from firewall.base import FirewallResult
 from firewall.engine import FirewallEngine
@@ -68,8 +71,7 @@ def test_firewall_apply_rejects_unverified_enforcement_topology(tmp_path: Path) 
         Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True)),
     )
     try:
-        import pytest
-        with pytest.raises(Exception, match="enforcement_topology"):
+        with pytest.raises(ConfigError, match="enforcement_topology"):
             engine.sync(apply=True)
     finally:
         db.close()
@@ -90,8 +92,7 @@ def test_gateway_enforcement_requires_ipv4_forwarding(tmp_path: Path, monkeypatc
     )
     monkeypatch.setattr(engine, "_ipv4_forwarding_enabled", lambda: False)
     try:
-        import pytest
-        with pytest.raises(Exception, match="IPv4 forwarding"):
+        with pytest.raises(ConfigError, match="IPv4 forwarding"):
             engine.sync(apply=True)
     finally:
         db.close()
