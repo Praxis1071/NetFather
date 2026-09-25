@@ -91,15 +91,20 @@ class NftablesBackend(FirewallBackend):
         return FirewallResult(self.name, True, tuple(ips), "NetFather nftables set updated atomically", update_script)
 
     def rollback(self, *, apply: bool = False) -> FirewallResult:
+        """Disable NetFather blocking without destroying its owned nftables state."""
+        script = f"flush set inet {self.table} blocked4\\n"
         if not apply:
-            return FirewallResult(self.name, False, (), "dry-run rollback", f"delete table inet {self.table}")
+            return FirewallResult(self.name, False, (), "dry-run rollback", script)
         nft = shutil.which("nft")
         if not nft:
             raise RuntimeError("nft komutu bulunamadı.")
-        result = _run([nft, "delete", "table", "inet", self.table])
-        if result.returncode != 0 and "No such file" not in result.stderr:
-            raise RuntimeError(result.stderr.strip())
-        return FirewallResult(self.name, True, (), "NetFather nftables table removed")
+        checked = _run([nft, "-c", "-f", "-"], input_text=script)
+        if checked.returncode != 0:
+            raise RuntimeError(f"nft rollback validation failed: {checked.stderr.strip()}")
+        result = _run([nft, "-f", "-"], input_text=script)
+        if result.returncode != 0:
+            raise RuntimeError(f"nft rollback failed: {result.stderr.strip()}")
+        return FirewallResult(self.name, True, (), "NetFather blocking set cleared", script)
 
 
 class NullFirewallBackend(FirewallBackend):
