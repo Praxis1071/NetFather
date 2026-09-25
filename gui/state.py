@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import threading
 from typing import Callable
 
 from network.identity import DeviceIdentity
@@ -45,20 +46,25 @@ class ApplicationState:
     network: NetworkState = field(default_factory=NetworkState)
     discovery: DiscoveryState = field(default_factory=DiscoveryState)
     _listeners: list[Callable[[], None]] = field(default_factory=list, repr=False)
+    _listeners_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def subscribe(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Register a listener and return an unsubscribe callback."""
-        self._listeners.append(callback)
+        with self._listeners_lock:
+            self._listeners.append(callback)
 
         def unsubscribe() -> None:
-            try:
-                self._listeners.remove(callback)
-            except ValueError:
-                pass
+            with self._listeners_lock:
+                try:
+                    self._listeners.remove(callback)
+                except ValueError:
+                    pass
 
         return unsubscribe
 
     def notify_changed(self) -> None:
         """Notify listeners after state has been updated."""
-        for callback in tuple(self._listeners):
+        with self._listeners_lock:
+            listeners = tuple(self._listeners)
+        for callback in listeners:
             callback()
