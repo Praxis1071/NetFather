@@ -69,6 +69,6 @@ def test_nftables_rollback_clears_set_without_deleting_table(monkeypatch) -> Non
     scripts = [text for _, text in calls if text]
     assert scripts == [
         "flush set inet netfather blocked4\n",
-        "flush set inet netfather blocked4\\n",
+        "flush set inet netfather blocked4\n",
     ]
     assert not any("delete table" in (text or "") for _, text in calls)
