@@ -65,7 +65,8 @@ Status markers:
 - [x] Replace destructive table recreation with atomic named-set element updates.
 - [x] Preserve existing NetFather table/chains and their counters across normal policy-set changes.
 - [x] Fix the escaped-newline regression in the multi-command nftables transaction and add exact line-structure regression coverage.
-- [ ] Keep rollback behavior explicit and testable; full failure/recovery integration coverage remains.
+- [x] Make rollback non-destructive by clearing only the NetFather-owned blocking set instead of deleting the entire table.
+- [ ] Add privileged network-namespace failure/recovery integration coverage.
 
 ### P1.4 Existing-flow handling
 - [x] Define conntrack behavior: NetFather does not add an `established,related accept` bypass, so nftables policy is evaluated for existing flows as well as new packets.
