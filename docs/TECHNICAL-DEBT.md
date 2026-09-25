@@ -66,7 +66,7 @@ Status markers:
 - [x] Preserve existing NetFather table/chains and their counters across normal policy-set changes.
 - [x] Fix the escaped-newline regression in the multi-command nftables transaction and add exact line-structure regression coverage.
 - [x] Make rollback non-destructive by clearing only the NetFather-owned blocking set instead of deleting the entire table.
-- [ ] Add privileged network-namespace failure/recovery integration coverage.
+- [x] Add privileged network-namespace block/recovery coverage with a valid nftables transaction.
 
 ### P1.4 Existing-flow handling
 - [x] Define conntrack behavior: NetFather does not add an `established,related accept` bypass, so nftables policy is evaluated for existing flows as well as new packets.
@@ -118,6 +118,7 @@ Status markers:
 - [ ] Add deep-scan subprocess/error-path tests.
 - [~] Add policy-to-firewall end-to-end tests; the Linux namespace test now covers block and recovery packet behavior, while existing-flow transitions remain open.
 - [ ] Add GTK state/background-task lifecycle tests.
+- [x] Cover the persistent `device_observations` table in the database schema regression test.
 
 ## P3 — repository and release hygiene
 
@@ -157,3 +158,10 @@ Status markers:
 - Corrected the nftables transaction newline regression and added exact transaction-shape tests.
 
 This file should be updated whenever a finding is fixed, superseded, or split into smaller engineering tasks.
+
+## Latest follow-up — 2026-09-25
+
+- Fixed a real nftables rollback bug where the rollback script contained a literal `\\n` instead of a newline, which could make `nft` reject the recovery transaction.
+- Updated the backend regression test and namespace recovery test to require the valid newline-delimited transaction.
+- Extended the database schema test to assert that `device_observations` is created by the ORM registry.
+- CI status for the latest commits is not currently reported by the GitHub connector; local test execution remains required before treating the batch as verified.
