@@ -325,6 +325,50 @@ class DeviceManager:
             log.info("Cihaz güncellendi: %s (%s)", device.name, device.mac)
             return device
 
+    def update_presence(self, mac: str, *, online: bool, ip: str | None = None) -> bool:
+        """Apply a low-latency neighbor presence transition to a known device."""
+        try:
+            normalized = normalize_mac(mac)
+        except (TypeError, ValueError, AttributeError):
+            return False
+        with self.db.session() as session:
+            device = self._find_by_mac(session, normalized)
+            if device is None:
+                return False
+            now = utc_now()
+            if online:
+                previous_ip = device.ip
+                device.online = True
+                device.last_seen = now
+                if ip and previous_ip != ip:
+                    device.ip = ip
+                    session.add(Event(
+                        event_type="device_ip_changed",
+                        description=f"{device.name} IP changed: {previous_ip} -> {ip}",
+                        device_mac=device.mac,
+                    ))
+                    session.add(DeviceObservationRecord(
+                        device_id=device.id,
+                        ip=ip,
+                        source="neighbor",
+                        confidence=0.9,
+                        observed_at=now,
+                    ))
+                if not device.online:
+                    session.add(Event(
+                        event_type="device_online",
+                        description=f"{device.name} ağa katıldı",
+                        device_mac=device.mac,
+                    ))
+            elif device.online:
+                device.online = False
+                session.add(Event(
+                    event_type="device_offline",
+                    description=f"{device.name} ağdan ayrıldı",
+                    device_mac=device.mac,
+                ))
+            return True
+
     def sync_discovered_hosts(self, hosts: Iterable["DiscoveredHost"]) -> int:
         """Refresh ``last_seen``/IP/vendor for already-registered discovered MACs.
 
