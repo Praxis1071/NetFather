@@ -23,7 +23,7 @@ Status markers:
 ### P0.3 Enforcement deployment model
 - [x] Document that discovery does not imply remote traffic control.
 - [x] Document the required gateway/router/inline traffic path for controlling another device.
-- [ ] Add runtime validation and UI safeguards so the deployment topology is explicit before enforcement.
+- [x] Add runtime validation so enforcement requires an explicit `gateway` or `inline` topology; gateway mode additionally requires Linux IPv4 forwarding.
 
 ### P0.4 Effective profile semantics
 - [x] Define unrestricted, controlled, and blocked semantics in PolicyEngine.
