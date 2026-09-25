@@ -242,3 +242,20 @@ def test_delete_device_cascades_observation_history(manager: DeviceManager) -> N
 
     with manager.db.session() as session:
         assert session.scalars(select(DeviceObservationRecord)).all() == []
+
+
+def test_update_presence_applies_online_and_offline_transitions(manager: DeviceManager) -> None:
+    manager.add_device("Laptop", "AA:BB:CC:DD:EE:60", ip="192.168.1.60")
+
+    assert manager.update_presence("AA:BB:CC:DD:EE:60", online=True, ip="192.168.1.61") is True
+    device = manager.get_device_by_name("Laptop")
+    assert device.online is True
+    assert device.ip == "192.168.1.61"
+    assert device.last_seen is not None
+
+    assert manager.update_presence("AA:BB:CC:DD:EE:60", online=False) is True
+    assert manager.get_device_by_name("Laptop").online is False
+
+
+def test_update_presence_ignores_unknown_device(manager: DeviceManager) -> None:
+    assert manager.update_presence("AA:BB:CC:DD:EE:61", online=True, ip="192.168.1.61") is False
