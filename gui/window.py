@@ -60,6 +60,8 @@ class NetFatherWindow(Gtk.ApplicationWindow):
             "Events": EventsPage(database, tasks),
             "Settings": self._settings_page(config),
         }
+        self._pages = tuple(pages.values())
+        self.connect("close-request", self._on_close_request)
         for name, page in pages.items():
             scroller = Gtk.ScrolledWindow()
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -80,6 +82,13 @@ class NetFatherWindow(Gtk.ApplicationWindow):
         root.append(sidebar)
         root.append(content)
         return root
+
+    def _on_close_request(self, _window: Gtk.Window) -> bool:
+        for page in getattr(self, "_pages", ()):
+            cleanup = getattr(page, "cleanup", None)
+            if cleanup is not None:
+                cleanup()
+        return False
 
     def _settings_page(self, config: Config) -> Gtk.Widget:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
