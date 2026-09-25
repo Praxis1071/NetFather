@@ -6,6 +6,10 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
+from core.logger import get_logger
+
+log = get_logger("presence")
+
 
 @dataclass(frozen=True, slots=True)
 class PresenceEvent:
@@ -116,7 +120,12 @@ class PresenceMonitor:
                     break
                 event = parse_neighbor_event(line)
                 if event is not None:
-                    self.callback(event)
+                    try:
+                        self.callback(event)
+                    except Exception:
+                        # A single database/UI callback failure must not kill
+                        # the long-lived kernel neighbor monitor thread.
+                        log.exception("Presence callback failed")
         finally:
             try:
                 process.stdout.close()
