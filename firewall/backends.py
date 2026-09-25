@@ -78,7 +78,7 @@ class NftablesBackend(FirewallBackend):
         if ips:
             update_script = (
                 f"flush set inet {self.table} blocked4\n"
-                f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\\n"
+                f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\n"
             )
         else:
             update_script = f"flush set inet {self.table} blocked4\n"
