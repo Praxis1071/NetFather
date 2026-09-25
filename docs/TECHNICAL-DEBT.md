@@ -68,8 +68,8 @@ Status markers:
 - [ ] Keep rollback behavior explicit and testable; full failure/recovery integration coverage remains.
 
 ### P1.4 Existing-flow handling
-- [ ] Define conntrack behavior for policy changes.
-- [ ] Test transitions from allowed to blocked and blocked to allowed with existing connections.
+- [x] Define conntrack behavior: NetFather does not add an `established,related accept` bypass, so nftables policy is evaluated for existing flows as well as new packets.
+- [ ] Integration-test transitions from allowed to blocked and blocked to allowed with existing connections.
 
 ### P1.5 Discovery configuration correctness
 - [x] DiscoveryService.scan() accepts explicit auto-registration and offline-grace settings.
