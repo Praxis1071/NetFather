@@ -150,6 +150,12 @@ class TopologyPage(Gtk.Box):
         row.append(info)
         return row
 
+    def cleanup(self) -> None:
+        """Stop the periodic topology refresh when the window closes."""
+        if self._refresh_source is not None:
+            GLib.source_remove(self._refresh_source)
+            self._refresh_source = None
+
     def dispose(self) -> None:
         if self._refresh_source is not None:
             GLib.source_remove(self._refresh_source)
