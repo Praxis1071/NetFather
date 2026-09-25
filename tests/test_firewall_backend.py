@@ -43,6 +43,6 @@ def test_existing_nftables_table_can_be_cleared_without_recreation(monkeypatch) 
     scripts = [text for _, text in calls if text]
     assert scripts[0].startswith("table inet netfather_check")
     assert scripts[1:] == [
-        "flush set inet netfather blocked4\\n",
+        "flush set inet netfather blocked4\n",
         "flush set inet netfather blocked4\\n",
     ]
