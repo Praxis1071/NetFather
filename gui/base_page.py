@@ -19,6 +19,10 @@ class BasePage(Gtk.Box):
             label.add_css_class("dim-label")
             self.append(label)
 
+    def cleanup(self) -> None:
+        """Release page-owned subscriptions, timers, and background hooks."""
+        return None
+
 
 def section(title: str, child: Gtk.Widget) -> Gtk.Box:
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
