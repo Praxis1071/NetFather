@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from threading import Lock
+from threading import RLock
 from typing import Callable, TYPE_CHECKING
 
 from core.time_utils import utc_now
@@ -37,7 +37,7 @@ class DiscoveryService:
     def __init__(self, resolver: IdentityResolver | None = None, device_manager: DeviceManager | None = None) -> None:
         self.resolver = resolver or IdentityResolver()
         self.device_manager = device_manager
-        self._lock = Lock()
+        self._lock = RLock()
         self._running = False
         self._snapshot: DiscoverySnapshot | None = None
         self._listeners: list[Callable[[DiscoverySnapshot], None]] = []
@@ -53,12 +53,16 @@ class DiscoveryService:
             return self._snapshot
 
     def subscribe(self, callback: Callable[[DiscoverySnapshot], None]) -> Callable[[], None]:
-        self._listeners.append(callback)
+        with self._lock:
+            self._listeners.append(callback)
+
         def unsubscribe() -> None:
-            try:
-                self._listeners.remove(callback)
-            except ValueError:
-                pass
+            with self._lock:
+                try:
+                    self._listeners.remove(callback)
+                except ValueError:
+                    pass
+
         return unsubscribe
 
     def scan(
@@ -117,6 +121,8 @@ class DiscoveryService:
             with self._lock:
                 self._running = False
                 self._snapshot = snapshot
-        for callback in tuple(self._listeners):
+        with self._lock:
+            listeners = tuple(self._listeners)
+        for callback in listeners:
             callback(snapshot)
         return snapshot
