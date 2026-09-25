@@ -24,9 +24,17 @@ def parse_neighbor_event(line: str) -> PresenceEvent | None:
         return None
     lower = text.lower()
     kind = "changed"
-    if lower.startswith("deleted") or " nud failed" in lower:
+    if lower.startswith("deleted") or " nud failed" in lower or lower.endswith(" failed"):
         kind = "removed"
     elif lower.startswith("added") or lower.startswith("new"):
+        kind = "added"
+    elif any(
+        state in lower.split()
+        for state in ("reachable", "stale", "delay", "probe", "permanent", "noarp", "router")
+    ):
+        # ip monitor neigh normally reports state transitions as ordinary
+        # neighbor lines rather than prefixing them with "added"/"new".
+        # A resolved NUD state means the MAC is currently present.
         kind = "added"
     tokens = text.replace("/", " ").split()
     address = next((token for token in tokens if _looks_like_ip(token)), None)
