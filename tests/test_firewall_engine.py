@@ -48,7 +48,7 @@ def test_firewall_sync_never_blocks_local_or_gateway_ip(tmp_path: Path, monkeypa
 
     engine = FirewallEngine(
         db,
-        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True)),
+        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True, enforcement_topology="inline")),
     )
     backend = CaptureBackend()
     engine.backend = backend
@@ -58,3 +58,40 @@ def test_firewall_sync_never_blocks_local_or_gateway_ip(tmp_path: Path, monkeypa
     assert result.blocked_ips == ("192.168.1.21",)
     assert backend.calls == [(["192.168.1.21"], True)]
     db.close()
+
+
+def test_firewall_apply_rejects_unverified_enforcement_topology(tmp_path: Path) -> None:
+    db = Database(tmp_path / "firewall-topology.db")
+    db.init_db()
+    engine = FirewallEngine(
+        db,
+        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True)),
+    )
+    try:
+        import pytest
+        with pytest.raises(Exception, match="enforcement_topology"):
+            engine.sync(apply=True)
+    finally:
+        db.close()
+
+
+def test_gateway_enforcement_requires_ipv4_forwarding(tmp_path: Path, monkeypatch) -> None:
+    db = Database(tmp_path / "firewall-gateway.db")
+    db.init_db()
+    engine = FirewallEngine(
+        db,
+        Config(
+            firewall=FirewallConfig(
+                backend="none",
+                enforcement_enabled=True,
+                enforcement_topology="gateway",
+            )
+        ),
+    )
+    monkeypatch.setattr(engine, "_ipv4_forwarding_enabled", lambda: False)
+    try:
+        import pytest
+        with pytest.raises(Exception, match="IPv4 forwarding"):
+            engine.sync(apply=True)
+    finally:
+        db.close()
