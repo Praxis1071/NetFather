@@ -198,7 +198,7 @@ def test_delete_device_cascades_observation_history(manager: DeviceManager) -> N
             )
         ]
     )
-    manager.delete_device("Device-ee40")
+    manager.delete_device("Device-DDEE40")
 
     with manager.db.session() as session:
         assert session.scalars(select(DeviceObservationRecord)).all() == []
