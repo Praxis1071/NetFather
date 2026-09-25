@@ -70,7 +70,7 @@ Status markers:
 
 ### P1.4 Existing-flow handling
 - [x] Define conntrack behavior: NetFather does not add an `established,related accept` bypass, so nftables policy is evaluated for existing flows as well as new packets.
-- [ ] Integration-test transitions from allowed to blocked and blocked to allowed with existing connections.
+- [~] Added a Linux namespace TCP test that keeps an established connection open across block/recovery and verifies blocked packets are only delivered after recovery; runtime CI verification is still pending.
 
 ### P1.5 Discovery configuration correctness
 - [x] DiscoveryService.scan() accepts explicit auto-registration and offline-grace settings.
@@ -110,7 +110,7 @@ Status markers:
 ### P2.5 GUI architecture
 - [ ] Finish Libadwaita migration where useful.
 - [ ] Improve adaptive navigation and narrow-window layouts.
-- [ ] Centralize page lifecycle/disposal and timer cleanup.
+- [x] Add a shared GTK page cleanup contract and invoke page cleanup when the main window closes; discovery timers and state subscriptions are released.
 - [x] Remove duplicate/dead GTK page implementations by splitting discovery/devices into dedicated modules and deleting the obsolete combined page module.
 
 ### P2.6 Test coverage
