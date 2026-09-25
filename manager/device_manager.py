@@ -62,8 +62,6 @@ class DeviceManager:
             .order_by(desc(DeviceObservationRecord.observed_at))
             .limit(1)
         )
-        if latest is not None:
-            return
         confidence = 0.95 if "active" in source else 0.8
         if "deep" in source:
             confidence = min(1.0, confidence + 0.03)
@@ -71,6 +69,15 @@ class DeviceManager:
             confidence = min(1.0, confidence + 0.03)
         if getattr(host, "vendor", None):
             confidence = min(1.0, confidence + 0.02)
+
+        if latest is not None:
+            same_metadata = all(
+                getattr(latest, field) == getattr(host, field, None)
+                for field in ("interface", "hostname", "vendor", "device_type", "os_hint")
+            )
+            if same_metadata:
+                return
+
         session.add(
             DeviceObservationRecord(
                 device_id=device.id,
