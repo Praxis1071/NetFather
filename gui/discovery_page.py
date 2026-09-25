@@ -28,6 +28,12 @@ class DiscoveryPage(BasePage):
         self.mode.connect("changed",lambda _c:self._update_deep_visibility()); expander=Gtk.Expander(label="Scan options"); expander.set_child(options); expander.set_expanded(True); self.append(expander); self._update_deep_visibility()
         controls=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=10); self.scan_button=Gtk.Button(label="Start scan"); self.scan_button.add_css_class("suggested-action"); self.scan_button.connect("clicked",self._start_scan); controls.append(self.scan_button); self.last_scan=Gtk.Label(label="No scan run yet",xalign=0); self.last_scan.add_css_class("dim-label"); controls.append(self.last_scan); self.append(controls)
         self.progress=Gtk.ProgressBar(); self.progress.set_show_text(True); self.progress.set_text("Ready"); self.append(self.progress); self.status=Gtk.Label(label="Ready",xalign=0,wrap=True); self.status.add_css_class("card"); self.append(self.status); self.device_list=Gtk.ListBox(); self.device_list.set_selection_mode(Gtk.SelectionMode.NONE); self.device_list.set_vexpand(True); self.device_list.add_css_class("boxed-list"); self.append(section("Discovered devices",self.device_list)); self._render_devices(state.discovery.identities); self._on_state_changed()
+    def cleanup(self)->None:
+        if self._pulse_source is not None:
+            GLib.source_remove(self._pulse_source)
+            self._pulse_source = None
+        self._unsubscribe()
+
     def _update_deep_visibility(self)->None:self.deep_box.set_visible((self.mode.get_active_id() or "hybrid")=="deep")
     def _start_scan(self,_button:Gtk.Button)->None:
         if self.state.discovery.running:return
