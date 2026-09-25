@@ -6,7 +6,7 @@ def test_parse_added_neighbor_event() -> None:
     assert event is not None
     assert event.address == "192.168.1.25"
     assert event.mac == "aa:bb:cc:dd:ee:ff"
-    assert event.kind == "changed"
+    assert event.kind == "added"
 
 
 def test_parse_deleted_neighbor_event() -> None:
@@ -18,3 +18,11 @@ def test_parse_deleted_neighbor_event() -> None:
 
 def test_ignore_empty_neighbor_event() -> None:
     assert parse_neighbor_event("   ") is None
+
+
+def test_parse_failed_neighbor_event_as_removed() -> None:
+    event = parse_neighbor_event(
+        "192.168.1.25 dev wlan0 lladdr AA:BB:CC:DD:EE:FF FAILED"
+    )
+    assert event is not None
+    assert event.kind == "removed"
