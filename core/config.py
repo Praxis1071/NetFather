@@ -15,7 +15,7 @@ _VALID_DISCOVERY_MODES = {"passive", "active", "hybrid", "deep"}
 DEFAULT_CONFIG_DIR = default_config_dir()
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.toml"
 DEFAULT_DATA_DIR = default_data_dir()
-_DEFAULT_TOML = """[general]\napp_name = \"NetFather\"\ndata_dir = {data_dir}\n\n[database]\nfilename = \"netfather.db\"\n\n[logging]\nlevel = \"INFO\"\nfilename = \"netfather.log\"\nmax_bytes = 1048576\nbackup_count = 3\n\n[network]\nscan_timeout_seconds = 5\ndefault_interface = \"\"\n\n[discovery]\nmode = \"hybrid\"\ninterval_seconds = 15\nactive_timeout_seconds = 2\nsubnet = \"\"\nauto_register = true\nhostname_resolution = true\nvendor_detection = true\nos_detection = false\noffline_after_seconds = 45\nlive_presence_enabled = true\nlive_presence_interval_seconds = 30\n\n[firewall]\nbackend = \"auto\"\nenforcement_enabled = false\nrollback_on_error = true\n\n[monitor]\nrefresh_seconds = 3\n\n[daemon]\ninterval_seconds = 5\n"""
+_DEFAULT_TOML = """[general]\napp_name = \"NetFather\"\ndata_dir = {data_dir}\n\n[database]\nfilename = \"netfather.db\"\n\n[logging]\nlevel = \"INFO\"\nfilename = \"netfather.log\"\nmax_bytes = 1048576\nbackup_count = 3\n\n[network]\nscan_timeout_seconds = 5\ndefault_interface = \"\"\n\n[discovery]\nmode = \"hybrid\"\ninterval_seconds = 15\nactive_timeout_seconds = 2\nsubnet = \"\"\nauto_register = true\nhostname_resolution = true\nvendor_detection = true\nos_detection = false\noffline_after_seconds = 45\nlive_presence_enabled = true\nlive_presence_interval_seconds = 30\n\n[firewall]\nbackend = \"auto\"\nenforcement_enabled = false\nrollback_on_error = true\nenforcement_topology = "unverified"\n\n[monitor]\nrefresh_seconds = 3\n\n[daemon]\ninterval_seconds = 5\n"""
 
 @dataclass
 class GeneralConfig:
@@ -72,10 +72,17 @@ class FirewallConfig:
     backend: str = "auto"
     enforcement_enabled: bool = False
     rollback_on_error: bool = True
+    enforcement_topology: str = "unverified"
+
     def __post_init__(self) -> None:
         self.backend = self.backend.strip().lower()
+        self.enforcement_topology = self.enforcement_topology.strip().lower()
         if self.backend not in {"auto", "nftables", "none"}:
             raise ConfigError("firewall.backend auto/nftables/none olmalıdır.")
+        if self.enforcement_topology not in {"unverified", "host", "gateway", "inline"}:
+            raise ConfigError(
+                "firewall.enforcement_topology unverified/host/gateway/inline olmalıdır."
+            )
 
 @dataclass
 class MonitorConfig:
