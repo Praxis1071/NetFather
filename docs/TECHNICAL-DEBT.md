@@ -37,8 +37,8 @@ Status markers:
 - [ ] Update enforcement safely when DHCP changes a device IP.
 
 ### P0.6 Self-lockout protection
-- [~] Firewall sync now refuses to install blocks for the detected local IPv4 address or gateway IPv4 address.
-- [ ] Add explicit interface/admin-host safeguards beyond the basic local/gateway guard.
+- [x] Firewall sync refuses to install blocks for all detected local IPv4 addresses and the detected gateway IPv4 address.
+- [ ] Add explicit interface/admin-host safeguards beyond the local/gateway address guard.
 - [ ] Integration-test failure and recovery paths.
 
 ### P0.7 Privileged-service separation
