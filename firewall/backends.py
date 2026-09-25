@@ -92,7 +92,7 @@ class NftablesBackend(FirewallBackend):
 
     def rollback(self, *, apply: bool = False) -> FirewallResult:
         """Disable NetFather blocking without destroying its owned nftables state."""
-        script = f"flush set inet {self.table} blocked4\\n"
+        script = f"flush set inet {self.table} blocked4\n"
         if not apply:
             return FirewallResult(self.name, False, (), "dry-run rollback", script)
         nft = shutil.which("nft")
