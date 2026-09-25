@@ -33,3 +33,16 @@ def test_derived_paths(tmp_path: Path, isolated_data_dir: Path) -> None:
     cfg = config_module.load_config(tmp_path / "config.toml")
     assert cfg.database_path == isolated_data_dir / "netfather.db"
     assert cfg.log_path == isolated_data_dir / "logs" / "netfather.log"
+
+
+def test_firewall_enforcement_topology_defaults_to_unverified(tmp_path: Path, isolated_data_dir: Path) -> None:
+    cfg = config_module.load_config(tmp_path / "config.toml")
+    assert cfg.firewall.enforcement_topology == "unverified"
+
+
+def test_invalid_firewall_enforcement_topology_raises(tmp_path: Path, isolated_data_dir: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[firewall]\nenforcement_topology = "router"
+', encoding="utf-8")
+    with pytest.raises(ConfigError):
+        config_module.load_config(path)
