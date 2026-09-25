@@ -6,7 +6,7 @@ NetFather now has an optional continuous presence layer for Linux desktops.
 
 The application starts `ip monitor neigh` in a small background thread. Linux exposes neighbor-table creation and deletion notifications through rtnetlink; `ip monitor neigh` consumes that kernel notification stream. This avoids continuous packet capture and does not require the GTK application to run as root.
 
-When a relevant neighbor event arrives, NetFather debounces bursts for 750 ms and runs a lightweight hybrid discovery reconciliation. The normal identity resolver and device manager remain the single source of truth.
+When a relevant neighbor event arrives, NetFather applies an immediate online/offline transition for a known MAC-backed device, then debounces bursts for 750 ms and runs a lightweight hybrid discovery reconciliation. The normal device manager remains the single source of truth.
 
 ## Safety path
 
