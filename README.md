@@ -63,7 +63,7 @@ A normal Linux desktop running NetFather can discover devices on its local netwo
 
 The current nftables backend installs rules in NetFather's dedicated `inet netfather` table. It does not flush unrelated firewall tables. The project is moving toward persistent named sets and event-driven updates rather than rebuilding the whole table for every policy change.
 
-The default configuration keeps enforcement disabled. Do not enable enforcement on a production network until the deployment topology and recovery behavior have been verified.
+The default configuration keeps enforcement disabled. Do not enable enforcement on a production network until the deployment topology and recovery behavior have been verified. Enforcement is also runtime-gated: set `firewall.enforcement_topology = "gateway"` for a Linux router with IPv4 forwarding enabled, or `"inline"` for an explicitly verified inline path. `unverified`/ `host` configurations cannot apply remote-device enforcement.
 
 ## Discovery modes
 
