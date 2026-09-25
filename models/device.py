@@ -36,6 +36,9 @@ class Device(Base):
     rules: Mapped[list["Rule"]] = relationship(  # noqa: F821
         back_populates="device", cascade="all, delete-orphan"
     )
+    observations: Mapped[list["DeviceObservationRecord"]] = relationship(  # noqa: F821
+        back_populates="device", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     @validates("mac")
     def _validate_mac(self, _key: str, value: str) -> str:
