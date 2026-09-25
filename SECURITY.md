@@ -32,7 +32,7 @@ NetFather owns the dedicated Linux nftables table named `netfather`. It must not
 
 The current backend still has hardening work outstanding:
 
-- preserve counters and NetFather state across policy changes;
+- preserve counters and NetFather state across policy changes and non-destructive rollback;
 - handle policy changes for existing connections through an explicit conntrack strategy;
 - protect the NetFather management path from self-lockout;
 - validate the actual enforcement point before applying remote-device restrictions;
@@ -111,7 +111,7 @@ Highest-priority security/correctness work currently includes:
 2. enforcement-point validation and deployment model;
 3. self-lockout protection;
 4. durable identity/history for enforcement;
-5. atomic nftables named-set updates;
+5. atomic nftables named-set updates and non-destructive rollback;
 6. conntrack handling for policy transitions;
 7. privileged D-Bus/polkit separation;
 8. end-to-end discovery-to-enforcement tests;
