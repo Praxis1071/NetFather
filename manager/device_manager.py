@@ -87,6 +87,30 @@ class DeviceManager:
         )
 
     @staticmethod
+    def _record_manual_observation(session: Session, device: Device, ip: str, observed_at: dt.datetime) -> None:
+        """Persist a user-supplied IP observation when the managed address changes."""
+        latest = session.scalar(
+            select(DeviceObservationRecord)
+            .where(
+                DeviceObservationRecord.device_id == device.id,
+                DeviceObservationRecord.ip == ip,
+                DeviceObservationRecord.source == "manual",
+            )
+            .order_by(desc(DeviceObservationRecord.observed_at))
+            .limit(1)
+        )
+        if latest is None:
+            session.add(
+                DeviceObservationRecord(
+                    device_id=device.id,
+                    ip=ip,
+                    source="manual",
+                    confidence=1.0,
+                    observed_at=observed_at,
+                )
+            )
+
+    @staticmethod
     def _require_by_name(session: Session, name: str) -> Device:
         device = DeviceManager._find_by_name(session, name)
         if device is None:
@@ -163,6 +187,8 @@ class DeviceManager:
                     f"Cihaz eklenemedi, MAC veya isim çakışması: {exc}"
                 ) from exc
 
+            if ip:
+                self._record_manual_observation(session, device, ip, utc_now())
             session.refresh(device)
             session.expunge(device)
             log.info("Cihaz eklendi: %s (%s)", device.name, device.mac)
@@ -215,9 +241,14 @@ class DeviceManager:
             device = self._find_by_mac(session, normalized)
             if device is None:
                 raise DeviceNotFoundError(f"Cihaz bulunamadı: {normalized}")
-            device.last_seen = utc_now()
-            if ip:
+            now = utc_now()
+            device.last_seen = now
+            if ip and device.ip != ip:
+                previous_ip = device.ip
                 device.ip = ip
+                self._record_manual_observation(session, device, ip, now)
+                if previous_ip:
+                    session.add(Event(event_type="device_ip_changed", description=f"{device.name} IP changed: {previous_ip} -> {ip}", device_mac=device.mac))
 
     def update_device(
         self,
@@ -261,7 +292,12 @@ class DeviceManager:
                 device.mac = normalized_mac
 
             if ip is not None:
-                device.ip = ip.strip() or None
+                new_ip = ip.strip() or None
+                if new_ip != device.ip and new_ip:
+                    self._record_manual_observation(session, device, new_ip, utc_now())
+                    if device.ip:
+                        session.add(Event(event_type="device_ip_changed", description=f"{device.name} IP changed: {device.ip} -> {new_ip}", device_mac=device.mac))
+                device.ip = new_ip
             if vendor is not None:
                 device.vendor = vendor.strip() or None
             if device_type is not None:
