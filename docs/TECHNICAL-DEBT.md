@@ -131,7 +131,7 @@ Status markers:
 - [x] Document the supported CachyOS/Arch Linux setup using a Python venv with `--system-site-packages` so distribution-provided GTK4/PyGObject can be reused safely.
 - [x] Document editable installation with `python -m pip install -e .` and repeatable launch through the `netfather` entry point.
 - [x] Remove duplicate runtime dependencies from `requirements-dev.txt`.
-- [ ] Add CI coverage for the documented editable-install workflow and entry-point launch contract.
+- [x] Add CI coverage for the documented editable-install workflow and entry-point launch contract.
 
 ### P3.3 Release pipeline
 - [ ] Decide whether ARM64 is a supported release target.
