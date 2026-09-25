@@ -28,7 +28,7 @@ def test_nftables_rules_really_block_isolated_namespace_traffic():
         # Recovery must remove only NetFather's blocking state and restore traffic.
         recovery = _run(
             ["ip", "netns", "exec", a, "nft", "-f", "-"],
-            input_text="flush set inet netfather blocked4\\n",
+            input_text="flush set inet netfather blocked4\n",
             check=False,
         )
         assert recovery.returncode == 0, recovery.stderr
