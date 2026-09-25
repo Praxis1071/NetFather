@@ -111,19 +111,19 @@ Status markers:
 - [ ] Finish Libadwaita migration where useful.
 - [ ] Improve adaptive navigation and narrow-window layouts.
 - [ ] Centralize page lifecycle/disposal and timer cleanup.
-- [ ] Remove duplicate/dead GTK page implementations.
+- [x] Remove duplicate/dead GTK page implementations by splitting discovery/devices into dedicated modules and deleting the obsolete combined page module.
 
 ### P2.6 Test coverage
 - [ ] Add live-presence integration tests.
 - [ ] Add deep-scan subprocess/error-path tests.
-- [ ] Add policy-to-firewall end-to-end tests.
+- [~] Add policy-to-firewall end-to-end tests; the Linux namespace test now covers block and recovery packet behavior, while existing-flow transitions remain open.
 - [ ] Add GTK state/background-task lifecycle tests.
 
 ## P3 — repository and release hygiene
 
 ### P3.1 Linux-only cleanup
-- [ ] Remove stale Windows/macOS runtime/documentation references that contradict the current project direction.
-- [ ] Remove stale CLI/TUI architecture documentation.
+- [~] Remove stale Windows/macOS runtime/documentation references that contradict the current project direction; core architecture docs are now Linux-only, with a repository-wide wording audit still open.
+- [x] Remove stale CLI/TUI architecture documentation and the obsolete combined GTK pages module.
 
 ### P3.2 Metadata consistency
 - [x] Correct the Python package license classifier to GPL-3.0-or-later.
