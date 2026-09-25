@@ -10,7 +10,7 @@ from sqlalchemy import inspect
 from core.database import Database
 from models.device import Device
 
-EXPECTED_TABLES = {"devices", "profiles", "rules", "events"}
+EXPECTED_TABLES = {"devices", "device_observations", "profiles", "rules", "events"}
 
 
 @pytest.fixture
