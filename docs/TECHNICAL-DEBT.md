@@ -151,6 +151,7 @@ Status markers:
 - Added a basic firewall self-lockout guard for the local host and detected gateway, with regression coverage.
 - Created backup branch: `backup/pre-p0-p1-identity-2026-09-25` before the persistent-identity hardening batch.
 - Persisted device MAC/IP observations, discovery sources, confidence and IP-change history across application restarts.
+- Improved observation deduplication so enrichment changes (hostname/vendor/device type/OS/interface) create a new historical observation instead of being silently discarded.
 - Added DHCP/manual IP-change regression coverage and ensured policy enforcement follows the device's current IP.
 - Corrected the nftables transaction newline regression and added exact transaction-shape tests.
 
