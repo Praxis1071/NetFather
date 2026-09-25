@@ -30,11 +30,17 @@ def test_firewall_sync_never_blocks_local_or_gateway_ip(tmp_path: Path, monkeypa
     devices.add_device("Self", "02:00:00:00:00:01", ip="192.168.1.10")
     devices.add_device("Gateway", "02:00:00:00:00:02", ip="192.168.1.1")
     devices.add_device("Tablet", "02:00:00:00:00:03", ip="192.168.1.21")
+    devices.add_device("Admin LAN", "02:00:00:00:00:04", ip="10.0.0.5")
     profiles = ProfileManager(db)
     profiles.create_profile("Self", "blocked", internet_mode="blocked")
     profiles.create_profile("Gateway", "blocked", internet_mode="blocked")
     profiles.create_profile("Tablet", "blocked", internet_mode="blocked")
+    profiles.create_profile("Admin LAN", "blocked", internet_mode="blocked")
 
+    monkeypatch.setattr(
+        "firewall.engine.get_local_ipv4_addresses",
+        lambda: {"192.168.1.10", "10.0.0.5"},
+    )
     monkeypatch.setattr(
         "firewall.engine.get_network_status",
         lambda: SimpleNamespace(local_ip="192.168.1.10", gateway="192.168.1.1"),
