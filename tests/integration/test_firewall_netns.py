@@ -32,7 +32,7 @@ def test_nftables_policy_applies_to_an_existing_tcp_connection():
         "    if not chunk: break\n"
         "    data.append(chunk)\n"
         "  except socket.timeout: break\n"
-        f"open('{received}','wb').write(b'|'.join(data)); c.close(); s.close()"
+        f"open('{received}','w').write('\\n'.join(f'{x.decode(errors=\"replace\")}|{time.time()}' for x in data)); c.close(); s.close()"
     )
     client_script = (
         "import socket,time\n"
@@ -72,7 +72,8 @@ def test_nftables_policy_applies_to_an_existing_tcp_connection():
         applied = _run(["ip","netns","exec",a,"nft","-f","-"], input_text=rules, check=False)
         assert applied.returncode == 0, applied.stderr
 
-        import time; time.sleep(0.8)
+        import time; time.sleep(1.0)
+        recovery_at = time.time()
         recovery = _run(
             ["ip","netns","exec",a,"nft","-f","-"],
             input_text="flush set inet netfather blocked4\n",
@@ -84,10 +85,11 @@ def test_nftables_policy_applies_to_an_existing_tcp_connection():
         server_out, server_err = server.communicate(timeout=8)
         assert client.returncode == 0, client_err
         assert server.returncode == 0, server_err
-        data = open(received, "rb").read() if os.path.exists(received) else b""
-        assert b"first" in data
-        assert b"third" in data
-        assert b"second" not in data
+        records = open(received, encoding="utf-8").read().splitlines() if os.path.exists(received) else []
+        assert any(line.startswith("first|") for line in records)
+        assert any(line.startswith("third|") for line in records)
+        second = [float(line.rsplit("|", 1)[1]) for line in records if line.startswith("second|")]
+        assert second and second[0] >= recovery_at
     finally:
         if client is not None and client.poll() is None:
             client.kill()
