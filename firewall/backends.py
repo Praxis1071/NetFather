@@ -77,7 +77,7 @@ class NftablesBackend(FirewallBackend):
         # briefly remove enforcement, and make rollback more fragile.
         if ips:
             update_script = (
-                f"flush set inet {self.table} blocked4\\n"
+                f"flush set inet {self.table} blocked4\n"
                 f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\\n"
             )
         else:
