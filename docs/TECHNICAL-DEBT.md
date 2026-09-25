@@ -149,5 +149,9 @@ Status markers:
 - Confirmed DiscoveryService accepts reconciliation settings and LivePresenceService propagates them.
 - Added a CI prerequisite probe and verbose firewall integration invocation for the remaining network-namespace failure.
 - Added a basic firewall self-lockout guard for the local host and detected gateway, with regression coverage.
+- Created backup branch: `backup/pre-p0-p1-identity-2026-09-25` before the persistent-identity hardening batch.
+- Persisted device MAC/IP observations, discovery sources, confidence and IP-change history across application restarts.
+- Added DHCP/manual IP-change regression coverage and ensured policy enforcement follows the device's current IP.
+- Corrected the nftables transaction newline regression and added exact transaction-shape tests.
 
 This file should be updated whenever a finding is fixed, superseded, or split into smaller engineering tasks.
