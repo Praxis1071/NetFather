@@ -39,7 +39,7 @@ Status markers:
 ### P0.6 Self-lockout protection
 - [x] Firewall sync refuses to install blocks for all detected local IPv4 addresses and the detected gateway IPv4 address.
 - [ ] Add explicit interface/admin-host safeguards beyond the local/gateway address guard.
-- [ ] Integration-test failure and recovery paths.
+- [~] Added Linux namespace block/recovery and existing-flow coverage; runtime CI verification is still pending.
 
 ### P0.7 Privileged-service separation
 - [ ] Design a narrowly scoped Linux D-Bus service.
@@ -54,12 +54,12 @@ Status markers:
 - [ ] Account for randomized Wi-Fi MAC addresses where evidence permits.
 
 ### P1.2 Live presence and event propagation
-- [~] Linux neighbor notifications are already monitored and debounced.
+- [x] Linux neighbor notifications are monitored and debounced; resolved NUD states are now classified as online transitions.
 - [~] Current presence events trigger discovery reconciliation.
 - [x] Turn safe neighbor events into direct device state transitions for known MAC-backed devices; discovery reconciliation remains the safety path.
 - [ ] Add a central runtime event bus.
 - [~] Emit and persist device discovery, online/offline, and DHCP/IP-change events; the full canonical event taxonomy and central event bus remain open.
-- [ ] Keep periodic discovery as a safety reconciliation mechanism.
+- [x] Keep periodic discovery as a safety reconciliation mechanism.
 
 ### P1.3 Atomic nftables updates
 - [x] Replace destructive table recreation with atomic named-set element updates.
@@ -110,14 +110,14 @@ Status markers:
 ### P2.5 GUI architecture
 - [ ] Finish Libadwaita migration where useful.
 - [ ] Improve adaptive navigation and narrow-window layouts.
-- [x] Add a shared GTK page cleanup contract and invoke page cleanup when the main window closes; discovery timers and state subscriptions are released.
+- [x] Add a shared GTK page cleanup contract and invoke page cleanup when the main window closes; page timers, discovery timers, and state subscriptions are released.
 - [x] Remove duplicate/dead GTK page implementations by splitting discovery/devices into dedicated modules and deleting the obsolete combined page module.
 
 ### P2.6 Test coverage
 - [ ] Add live-presence integration tests.
 - [ ] Add deep-scan subprocess/error-path tests.
 - [~] Add policy-to-firewall end-to-end tests; the Linux namespace test now covers block and recovery packet behavior, while existing-flow transitions remain open.
-- [ ] Add GTK state/background-task lifecycle tests.
+- [~] Add GTK state subscription and cleanup regression tests; full background-task/window teardown coverage remains open.
 - [x] Cover the persistent `device_observations` table in the database schema regression test.
 
 ## P3 — repository and release hygiene
@@ -165,3 +165,11 @@ This file should be updated whenever a finding is fixed, superseded, or split in
 - Updated the backend regression test and namespace recovery test to require the valid newline-delimited transaction.
 - Extended the database schema test to assert that `device_observations` is created by the ORM registry.
 - CI status for the latest commits is not currently reported by the GitHub connector; local test execution remains required before treating the batch as verified.
+
+- Fixed live neighbor parsing so ordinary `ip monitor neigh` NUD states such as REACHABLE/STALE produce direct online transitions instead of being ignored as generic changes.
+- Hardened presence monitoring so callback exceptions are logged without terminating the long-lived monitor thread.
+- Made shared application-state and discovery-service subscriptions thread-safe.
+- Wait for live-presence timer threads during shutdown so database teardown cannot race an in-flight reconciliation.
+- Added cleanup hooks for dashboard, monitoring, and topology GTK timers and expanded architecture regression coverage.
+- Added a legacy SQLite schema upgrade regression test for additive device/event columns and the observation table.
+- Corrected the existing-flow TCP integration fixture so the server remains alive long enough to observe recovery after a blocked packet.
