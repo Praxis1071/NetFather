@@ -1,0 +1,4 @@
+PyGObject>=3.46,<4
+SQLAlchemy>=2.0,<2.1
+psutil>=5.9,<8
+scapy>=2.6,<3

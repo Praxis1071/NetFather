@@ -1,0 +1,196 @@
+# NetFather Technical Debt and Fix Plan
+
+This document records the repository-wide engineering findings from the September 2026 review. It is the source-of-truth checklist for the current hardening cycle.
+
+Status markers:
+- [x] fixed in the current main branch
+- [ ] open
+- [~] partially implemented / needs follow-up
+
+## P0 — correctness and safety
+
+### P0.1 CI enforcement integration failure
+- [x] Root cause identified: the generated nftables base-chain rules were missing statement terminators before closing braces, so nft rejected the ruleset in the namespace integration test.
+- [x] Corrected the nftables ruleset generator to emit valid multi-line chain syntax.
+- [x] Added an explicit privileged prerequisite probe and verbose test output so runner failures remain diagnosable.
+- [x] Confirmed the corrected ruleset with green CI runs 126 and 127 on the main branch.
+- [ ] Do not treat unit-test success as sufficient for firewall correctness.
+
+### P0.2 Linux-only diagnostics compatibility
+- [x] Remove the stale PlatformFamily dependency and Windows/macOS branches from core/diagnostics.py.
+- [x] Add a regression test that imports and executes diagnostics on Linux.
+
+### P0.3 Enforcement deployment model
+- [x] Document that discovery does not imply remote traffic control.
+- [x] Document the required gateway/router/inline traffic path for controlling another device.
+- [x] Add runtime validation so enforcement requires an explicit `gateway` or `inline` topology; gateway mode additionally requires Linux IPv4 forwarding.
+
+### P0.4 Effective profile semantics
+- [x] Define unrestricted, controlled, and blocked semantics in PolicyEngine.
+- [x] controlled now denies by default and requires an active allow rule.
+- [x] An active block rule overrides an active allow rule.
+- [x] Add policy precedence tests.
+
+### P0.5 Enforcement identity
+- [~] Stop treating a current IPv4 address as the durable identity of a device; MAC-backed identity now has a persistent observation history, while randomized Wi-Fi MAC handling remains open.
+- [x] Connect persistent device identity/history to enforcement targets by recording MAC/IP observations and deriving current enforcement targets from the device's current IP.
+- [x] Update enforcement safely when DHCP changes a device IP; discovery reconciliation records the new address and policy evaluation follows the updated target.
+
+### P0.6 Self-lockout protection
+- [x] Firewall sync refuses to install blocks for all detected local IPv4 addresses and the detected gateway IPv4 address.
+- [ ] Add explicit interface/admin-host safeguards beyond the local/gateway address guard.
+- [x] Baseline Linux namespace block/recovery and existing-flow coverage passed in upstream CI run 36848741182 at `cb0f200`.
+
+### P0.7 Privileged-service separation
+- [ ] Design a narrowly scoped Linux D-Bus service.
+- [ ] Add polkit authorization for only the operations that require privilege.
+- [ ] Keep the GTK process unprivileged.
+
+## P1 — core network architecture
+
+### P1.1 Persistent identity
+- [x] Persist MAC/IP history, identity observations, confidence, and discovery sources in `device_observations`.
+- [x] Preserve the recorded identity/IP history across application restarts.
+- [ ] Account for randomized Wi-Fi MAC addresses where evidence permits.
+
+### P1.2 Live presence and event propagation
+- [x] Linux neighbor notifications are monitored and debounced; resolved NUD states are now classified as online transitions.
+- [~] Current presence events trigger discovery reconciliation.
+- [x] Turn safe neighbor events into direct device state transitions for known MAC-backed devices; discovery reconciliation remains the safety path.
+- [ ] Add a central runtime event bus.
+- [~] Emit and persist device discovery, online/offline, and DHCP/IP-change events; the full canonical event taxonomy and central event bus remain open.
+- [x] Keep periodic discovery as a safety reconciliation mechanism.
+
+### P1.3 Atomic nftables updates
+- [x] Replace destructive table recreation with atomic named-set element updates.
+- [x] Preserve existing NetFather table/chains and their counters across normal policy-set changes.
+- [x] Fix the escaped-newline regression in the multi-command nftables transaction and add exact line-structure regression coverage.
+- [x] Make rollback non-destructive by clearing only the NetFather-owned blocking set instead of deleting the entire table.
+- [x] Add privileged network-namespace block/recovery coverage with a valid nftables transaction.
+
+### P1.4 Existing-flow handling
+- [x] Define conntrack behavior: NetFather does not add an `established,related accept` bypass, so nftables policy is evaluated for existing flows as well as new packets.
+- [x] The baseline established TCP block/recovery test passed in privileged upstream CI run 36848741182; future changes still require fresh verification.
+
+### P1.5 Discovery configuration correctness
+- [x] DiscoveryService.scan() accepts explicit auto-registration and offline-grace settings.
+- [x] LivePresenceService receives and uses those settings.
+- [ ] Add broader tests proving configuration changes alter reconciliation behavior.
+
+### P1.6 Deep inventory
+- [x] Use a lightweight Nmap host-discovery pass to bound deep scans before expensive TCP/UDP/version/OS probes.
+- [x] Avoid broad -Pn deep probes over large local subnets; the expensive pass receives only discovered live hosts through stdin.
+- [~] Surface skipped capabilities and warnings in DiscoverySnapshot and the GUI; the deep-scan report now carries warnings, but end-to-end GUI presentation still needs completion.
+- [x] Keep deep inventory local-network bounded and free of default NSE scripts.
+
+### P1.7 Additional discovery sources
+- [ ] IPv6/NDP.
+- [ ] DHCP lease information.
+- [ ] NetworkManager device/connection signals.
+- [ ] mDNS/LLMNR/NetBIOS enrichment where appropriate.
+- [ ] Persistent service/port history.
+
+## P2 — product completeness
+
+### P2.1 Profiles UI
+- [ ] Complete profile edit, mode change, and delete workflows.
+
+### P2.2 Rules UI
+- [ ] Complete rule enable/disable, edit, and delete workflows.
+- [ ] Make schedule semantics explicit, including overnight schedules.
+
+### P2.3 Monitoring
+- [ ] Add device-level traffic accounting.
+- [ ] Prefer nftables/tc/conntrack/interface counters over continuous Python packet sniffing for normal telemetry.
+
+### P2.4 Topology
+- [ ] Keep logical topology honest.
+- [ ] Add real interface/AP/switch/bridge/VLAN relationships only when backed by observations.
+
+### P2.5 GUI architecture
+- [x] Split Settings, About and native theme handling into dedicated modules; load GTK application exports lazily so UI state remains importable without a desktop runtime.
+- [x] Persist appearance/language preferences, ship three complete message catalogs and cover locale/placeholder/save-failure contracts.
+- [x] Stop using a localized monitoring button label as business state and persist live-presence switch changes after its active state changes.
+- [~] Add manual sidebar collapse, two-column metrics and stacked creation forms; complete GTK runtime, high-contrast and narrow-window verification.
+- [ ] Validate system theme integration outside GNOME and consider the desktop settings portal during the Libadwaita migration.
+- [ ] Finish Libadwaita migration where useful.
+- [ ] Improve adaptive navigation and narrow-window layouts.
+- [x] Add a shared GTK page cleanup contract and invoke page cleanup when the main window closes; page timers, discovery timers, and state subscriptions are released.
+- [x] Remove duplicate/dead GTK page implementations by splitting discovery/devices into dedicated modules and deleting the obsolete combined page module.
+
+### P2.6 Test coverage
+- [ ] Add live-presence integration tests.
+- [ ] Add deep-scan subprocess/error-path tests.
+- [~] Add policy-to-firewall end-to-end tests; the Linux namespace test now covers block and recovery packet behavior, while existing-flow transitions remain open.
+- [~] Add GTK state subscription and cleanup regression tests; full background-task/window teardown coverage remains open.
+- [x] Cover the persistent `device_observations` table in the database schema regression test.
+
+## P3 — repository and release hygiene
+
+### P3.1 Linux-only cleanup
+- [~] Remove stale Windows/macOS runtime/documentation references that contradict the current project direction; core architecture docs are now Linux-only, with a repository-wide wording audit still open.
+- [x] Remove stale CLI/TUI architecture documentation and the obsolete combined GTK pages module.
+
+### P3.2 Metadata consistency
+- [x] Correct the Python package license classifier to GPL-3.0-or-later.
+- [ ] Keep README, LICENSE, pyproject metadata, release docs, and version information synchronized.
+
+### P3.4 Developer installation / venv reproducibility
+- [x] Document the supported CachyOS/Arch Linux setup using a Python venv with `--system-site-packages` so distribution-provided GTK4/PyGObject can be reused safely.
+- [x] Document editable installation with `python -m pip install -e .` and repeatable launch through the `netfather` entry point.
+- [x] Remove duplicate runtime dependencies from `requirements-dev.txt`.
+- [x] Add CI coverage for the documented editable-install workflow and entry-point launch contract.
+
+### P3.3 Release pipeline
+- [ ] Decide whether ARM64 is a supported release target.
+- [ ] If supported, build it on an ARM64 runner rather than merely renaming an x64 artifact.
+- [ ] Validate GTK4/PyGObject/native-library packaging before publishing release artifacts.
+
+## Completed in this hardening pass
+
+- Created backup branch: backup/pre-audit-fixes-2026-09-23.
+- Updated README.md with the current implementation boundary, enforcement deployment model, live-presence architecture, and hardening references.
+- Updated SECURITY.md with the current threat model, enforcement-point requirements, privilege boundaries, and known security work.
+- Added a Linux diagnostics regression test.
+- Made controlled profile semantics explicit and added policy precedence tests.
+- Confirmed DiscoveryService accepts reconciliation settings and LivePresenceService propagates them.
+- Added a CI prerequisite probe and verbose firewall integration invocation for the remaining network-namespace failure.
+- Added a basic firewall self-lockout guard for the local host and detected gateway, with regression coverage.
+- Created backup branch: `backup/pre-p0-p1-identity-2026-09-25` before the persistent-identity hardening batch.
+- Persisted device MAC/IP observations, discovery sources, confidence and IP-change history across application restarts.
+- Improved observation deduplication so enrichment changes (hostname/vendor/device type/OS/interface) create a new historical observation instead of being silently discarded.
+- Added DHCP/manual IP-change regression coverage and ensured policy enforcement follows the device's current IP.
+- Corrected the nftables transaction newline regression and added exact transaction-shape tests.
+
+This file should be updated whenever a finding is fixed, superseded, or split into smaller engineering tasks.
+
+## Latest follow-up — 2026-09-25
+
+- Fixed a real nftables rollback bug where the rollback script contained a literal `\\n` instead of a newline, which could make `nft` reject the recovery transaction.
+- Updated the backend regression test and namespace recovery test to require the valid newline-delimited transaction.
+- Extended the database schema test to assert that `device_observations` is created by the ORM registry.
+- CI status for the latest commits is not currently reported by the GitHub connector; local test execution remains required before treating the batch as verified.
+
+- Fixed live neighbor parsing so ordinary `ip monitor neigh` NUD states such as REACHABLE/STALE produce direct online transitions instead of being ignored as generic changes.
+- Hardened presence monitoring so callback exceptions are logged without terminating the long-lived monitor thread.
+- Made shared application-state and discovery-service subscriptions thread-safe.
+- Wait for live-presence timer threads during shutdown so database teardown cannot race an in-flight reconciliation.
+- Added cleanup hooks for dashboard, monitoring, and topology GTK timers and expanded architecture regression coverage.
+- Added a legacy SQLite schema upgrade regression test for additive device/event columns and the observation table.
+- Corrected the existing-flow TCP integration fixture so the server remains alive long enough to observe recovery after a blocked packet.
+
+## Discovery/presence follow-up — 2026-10-01
+
+- [x] Identify false offline transitions: missing iproute2, command errors and denied ARP previously became successful empty inventories.
+- [x] Introduce `DiscoveryReport.complete` and source warnings; incomplete reports update observed hosts without expiring absent devices.
+- [x] Preserve runtime identity when a persistence reconciliation raises.
+- [x] Exclude FAILED/INCOMPLETE neighbor records from positive discovery observations.
+- [x] Treat Deleted/FAILED monitor events as reconciliation hints rather than immediate offline writes.
+- [x] Apply configured offline grace to both persistent device state and runtime identity.
+- [x] Pass manual GTK scans the configured auto-registration and offline grace values captured before dispatch.
+- [~] Surface discovery/deep warnings in GTK status feedback; callback tests exist, graphical runtime QA remains open.
+- [~] Add service-to-SQLite presence integration tests with deterministic clocks and controlled observation sources; real kernel notification coverage remains open.
+- [ ] Define aging of STALE/DELAY/PROBE/PERMANENT neighbor cache evidence so repeated passive samples do not indefinitely imply fresh reachability.
+- [ ] Verify this contribution in a fresh PR CI run and a supported GTK session.
+
+Baseline evidence: [upstream CI run 36848741182](https://github.com/Praxis1071/NetFather/actions/runs/36848741182) passed Python 3.12/3.13/3.14, editable installation and both privileged nftables tests. This does not substitute for testing the new contribution.

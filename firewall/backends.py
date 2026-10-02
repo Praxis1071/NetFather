@@ -1,0 +1,126 @@
+"""Linux nftables firewall backend.
+
+NetFather owns a dedicated nftables table and never flushes the host firewall.
+"""
+from __future__ import annotations
+
+import shutil
+import subprocess
+
+from firewall.base import FirewallResult, normalize_local_ips
+
+
+class FirewallBackend:
+    name = "none"
+    def preview(self, blocked_ips: list[str]) -> str:
+        raise NotImplementedError
+    def apply(self, blocked_ips: list[str], *, apply: bool = False) -> FirewallResult:
+        raise NotImplementedError
+    def rollback(self, *, apply: bool = False) -> FirewallResult:
+        raise NotImplementedError
+
+
+def _run(args: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, input=input_text, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+
+
+class NftablesBackend(FirewallBackend):
+    name = "nftables"
+    table = "netfather"
+
+    def preview(self, blocked_ips: list[str]) -> str:
+        ips = normalize_local_ips(blocked_ips)
+        elements = ", ".join(ips)
+        set_body = f"type ipv4_addr; elements = {{ {elements} }}" if ips else "type ipv4_addr;"
+        return f'''table inet {self.table} {{
+  set blocked4 {{ {set_body} }}
+  chain input {{
+    type filter hook input priority 0;
+    policy accept;
+    ip saddr @blocked4 drop;
+  }}
+  chain output {{
+    type filter hook output priority 0;
+    policy accept;
+    ip daddr @blocked4 drop;
+  }}
+  chain forward {{
+    type filter hook forward priority 0;
+    policy accept;
+    ip saddr @blocked4 drop;
+    ip daddr @blocked4 drop;
+  }}
+}}'''
+
+    def apply(self, blocked_ips: list[str], *, apply: bool = False) -> FirewallResult:
+        ips = normalize_local_ips(blocked_ips)
+        script = self.preview(ips)
+        if not apply:
+            return FirewallResult(self.name, False, tuple(ips), "dry-run", script)
+        nft = shutil.which("nft")
+        if not nft:
+            raise RuntimeError("nft komutu bulunamadı.")
+        check_script = script.replace(f"table inet {self.table}", "table inet netfather_check", 1)
+        checked = _run([nft, "-c", "-f", "-"], input_text=check_script)
+        if checked.returncode != 0:
+            raise RuntimeError(f"nft validation failed: {checked.stderr.strip()}")
+        existing = _run([nft, "list", "table", "inet", self.table])
+        if existing.returncode != 0:
+            # First installation: create the complete NetFather-owned table.
+            result = _run([nft, "-f", "-"], input_text=script)
+            if result.returncode != 0:
+                raise RuntimeError(f"nft apply failed: {result.stderr.strip()}")
+            return FirewallResult(self.name, True, tuple(ips), "NetFather nftables table created", script)
+
+        # Existing NetFather state is updated in one nft transaction.  Do not
+        # delete/recreate the table: that would unnecessarily reset counters,
+        # briefly remove enforcement, and make rollback more fragile.
+        if ips:
+            update_script = (
+                f"flush set inet {self.table} blocked4\n"
+                f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\n"
+            )
+        else:
+            update_script = f"flush set inet {self.table} blocked4\n"
+        checked_update = _run([nft, "-c", "-f", "-"], input_text=update_script)
+        if checked_update.returncode != 0:
+            raise RuntimeError(f"nft validation failed: {checked_update.stderr.strip()}")
+        result = _run([nft, "-f", "-"], input_text=update_script)
+        if result.returncode != 0:
+            raise RuntimeError(f"nft atomic update failed: {result.stderr.strip()}")
+        return FirewallResult(self.name, True, tuple(ips), "NetFather nftables set updated atomically", update_script)
+
+    def rollback(self, *, apply: bool = False) -> FirewallResult:
+        """Disable NetFather blocking without destroying its owned nftables state."""
+        script = f"flush set inet {self.table} blocked4\n"
+        if not apply:
+            return FirewallResult(self.name, False, (), "dry-run rollback", script)
+        nft = shutil.which("nft")
+        if not nft:
+            raise RuntimeError("nft komutu bulunamadı.")
+        checked = _run([nft, "-c", "-f", "-"], input_text=script)
+        if checked.returncode != 0:
+            raise RuntimeError(f"nft rollback validation failed: {checked.stderr.strip()}")
+        result = _run([nft, "-f", "-"], input_text=script)
+        if result.returncode != 0:
+            raise RuntimeError(f"nft rollback failed: {result.stderr.strip()}")
+        return FirewallResult(self.name, True, (), "NetFather blocking set cleared", script)
+
+
+class NullFirewallBackend(FirewallBackend):
+    name = "none"
+    def preview(self, blocked_ips: list[str]) -> str:
+        return "Firewall enforcement disabled"
+    def apply(self, blocked_ips: list[str], *, apply: bool = False) -> FirewallResult:
+        return FirewallResult(self.name, False, tuple(normalize_local_ips(blocked_ips)), "disabled")
+    def rollback(self, *, apply: bool = False) -> FirewallResult:
+        return FirewallResult(self.name, False, (), "disabled")
+
+
+def get_firewall_backend(name: str = "auto") -> FirewallBackend:
+    normalized = name.strip().lower()
+    if normalized == "none":
+        return NullFirewallBackend()
+    if normalized not in {"auto", "nftables"}:
+        raise ValueError("Linux için firewall backend yalnızca auto, nftables veya none olabilir.")
+    return NftablesBackend()

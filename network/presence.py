@@ -1,0 +1,167 @@
+"""Live Linux neighbor-presence monitoring for NetFather."""
+from __future__ import annotations
+
+import ipaddress
+import subprocess
+import threading
+from dataclasses import dataclass
+from typing import Callable
+
+from core.logger import get_logger
+
+log = get_logger("presence")
+
+
+@dataclass(frozen=True, slots=True)
+class PresenceEvent:
+    """A kernel neighbor-table event observed through ``ip monitor neigh``."""
+
+    raw: str
+    kind: str
+    address: str | None = None
+    mac: str | None = None
+
+
+def parse_neighbor_event(line: str) -> PresenceEvent | None:
+    """Parse the useful parts of an iproute2 neighbor-monitor line."""
+    text = line.strip()
+    if not text:
+        return None
+    lower = text.lower()
+    kind = "changed"
+    if lower.startswith("deleted") or " nud failed" in lower or lower.endswith(" failed"):
+        kind = "removed"
+    elif lower.startswith("added") or lower.startswith("new"):
+        kind = "added"
+    elif any(
+        state in lower.split()
+        for state in ("reachable", "stale", "delay", "probe", "permanent", "noarp", "router")
+    ):
+        # ip monitor neigh normally reports state transitions as ordinary
+        # neighbor lines rather than prefixing them with "added"/"new".
+        # A resolved NUD state means the MAC is currently present.
+        kind = "added"
+    tokens = text.replace("/", " ").split()
+    address = next((token for token in tokens if _looks_like_ip(token)), None)
+    mac = None
+    for index, token in enumerate(tokens[:-1]):
+        if token.lower() in {"lladdr", "lladdress"} and _looks_like_mac(tokens[index + 1]):
+            mac = tokens[index + 1].lower()
+            break
+    return PresenceEvent(raw=text, kind=kind, address=address, mac=mac)
+
+
+def _looks_like_ip(value: str) -> bool:
+    """Return whether *value* is a valid IPv4 or IPv6 address."""
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _looks_like_mac(value: str) -> bool:
+    parts = value.split(":")
+    return len(parts) == 6 and all(len(part) == 2 and all(c in "0123456789abcdefABCDEF" for c in part) for part in parts)
+
+
+class PresenceMonitor:
+    """Watch Linux neighbor-table notifications without requiring root."""
+
+    def __init__(self, callback: Callable[[PresenceEvent], None]) -> None:
+        self.callback = callback
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._process: subprocess.Popen[str] | None = None
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def start(self) -> bool:
+        if self.running:
+            return True
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="netfather-presence", daemon=True)
+        self._thread.start()
+        return True
+
+    def stop(self) -> None:
+        """Stop the subprocess and do not return while its reader is alive."""
+        self._stop.set()
+        process = self._process
+        if process is not None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            except OSError:
+                pass
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            # The reader owns subprocess cleanup. Waiting for it prevents a
+            # late callback from using the database after application shutdown.
+            thread.join()
+        if thread is None or thread is not threading.current_thread():
+            self._thread = None
+            self._process = None
+
+    def _run(self) -> None:
+        if self._stop.is_set():
+            return
+        try:
+            process = subprocess.Popen(
+                ["ip", "monitor", "neigh"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+        except (OSError, ValueError):
+            return
+        self._process = process
+        try:
+            # stop() may have raced with Popen; honor it before reading.
+            if self._stop.is_set():
+                try:
+                    process.terminate()
+                except OSError:
+                    pass
+            if process.stdout is None:
+                return
+            for line in process.stdout:
+                if self._stop.is_set():
+                    break
+                event = parse_neighbor_event(line)
+                if event is not None:
+                    try:
+                        self.callback(event)
+                    except Exception:
+                        # A single persistence callback failure must not kill
+                        # the long-lived kernel neighbor monitor thread.
+                        log.exception("Presence callback failed")
+        finally:
+            # Reap the child before closing its pipe. This also prevents a
+            # reader blocked in stdout from holding shutdown open indefinitely.
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                except OSError:
+                    pass
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            if process.stdout is not None:
+                try:
+                    process.stdout.close()
+                except OSError:
+                    pass
+            if self._process is process:
+                self._process = None
