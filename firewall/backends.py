@@ -30,25 +30,34 @@ class NftablesBackend(FirewallBackend):
 
     def preview(self, blocked_ips: list[str]) -> str:
         ips = normalize_local_ips(blocked_ips)
-        elements = ", ".join(ips)
-        set_body = f"type ipv4_addr; elements = {{ {elements} }}" if ips else "type ipv4_addr;"
+        ipv4 = [ip for ip in ips if ":" not in ip]
+        ipv6 = [ip for ip in ips if ":" in ip]
+        elements4 = ", ".join(ipv4)
+        elements6 = ", ".join(ipv6)
+        set_body4 = f"type ipv4_addr; elements = {{ {elements4} }}" if ipv4 else "type ipv4_addr;"
+        set_body6 = f"type ipv6_addr; elements = {{ {elements6} }}" if ipv6 else "type ipv6_addr;"
         return f'''table inet {self.table} {{
-  set blocked4 {{ {set_body} }}
+  set blocked4 {{ {set_body4} }}
+  set blocked6 {{ {set_body6} }}
   chain input {{
     type filter hook input priority 0;
     policy accept;
     ip saddr @blocked4 drop;
+    ip6 saddr @blocked6 drop;
   }}
   chain output {{
     type filter hook output priority 0;
     policy accept;
     ip daddr @blocked4 drop;
+    ip6 daddr @blocked6 drop;
   }}
   chain forward {{
     type filter hook forward priority 0;
     policy accept;
     ip saddr @blocked4 drop;
     ip daddr @blocked4 drop;
+    ip6 saddr @blocked6 drop;
+    ip6 daddr @blocked6 drop;
   }}
 }}'''
 
@@ -75,13 +84,21 @@ class NftablesBackend(FirewallBackend):
         # Existing NetFather state is updated in one nft transaction.  Do not
         # delete/recreate the table: that would unnecessarily reset counters,
         # briefly remove enforcement, and make rollback more fragile.
-        if ips:
-            update_script = (
-                f"flush set inet {self.table} blocked4\n"
-                f"add element inet {self.table} blocked4 {{ {', '.join(ips)} }}\n"
+        ipv4 = [ip for ip in ips if ":" not in ip]
+        ipv6 = [ip for ip in ips if ":" in ip]
+        update_lines = [
+            f"flush set inet {self.table} blocked4",
+            f"flush set inet {self.table} blocked6",
+        ]
+        if ipv4:
+            update_lines.append(
+                f"add element inet {self.table} blocked4 {{ {', '.join(ipv4)} }}"
             )
-        else:
-            update_script = f"flush set inet {self.table} blocked4\n"
+        if ipv6:
+            update_lines.append(
+                f"add element inet {self.table} blocked6 {{ {', '.join(ipv6)} }}"
+            )
+        update_script = "\n".join(update_lines) + "\n"
         checked_update = _run([nft, "-c", "-f", "-"], input_text=update_script)
         if checked_update.returncode != 0:
             raise RuntimeError(f"nft validation failed: {checked_update.stderr.strip()}")
@@ -92,7 +109,10 @@ class NftablesBackend(FirewallBackend):
 
     def rollback(self, *, apply: bool = False) -> FirewallResult:
         """Disable NetFather blocking without destroying its owned nftables state."""
-        script = f"flush set inet {self.table} blocked4\n"
+        script = (
+            f"flush set inet {self.table} blocked4\n"
+            f"flush set inet {self.table} blocked6\n"
+        )
         if not apply:
             return FirewallResult(self.name, False, (), "dry-run rollback", script)
         nft = shutil.which("nft")
