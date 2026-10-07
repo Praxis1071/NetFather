@@ -24,6 +24,7 @@ def test_existing_nftables_table_is_updated_without_recreation(monkeypatch) -> N
     assert "add element inet netfather blocked4 { 192.168.1.21, 192.168.1.22 }" in scripts[1]
     assert scripts[1].splitlines() == [
         "flush set inet netfather blocked4",
+        "flush set inet netfather blocked6",
         "add element inet netfather blocked4 { 192.168.1.21, 192.168.1.22 }",
     ]
     assert scripts[1] == scripts[2]
@@ -47,8 +48,10 @@ def test_existing_nftables_table_can_be_cleared_without_recreation(monkeypatch) 
     scripts = [text for _, text in calls if text]
     assert scripts[0].startswith("table inet netfather_check")
     assert scripts[1:] == [
-        "flush set inet netfather blocked4\n",
-        "flush set inet netfather blocked4\n",
+        "flush set inet netfather blocked4\n"
+        "flush set inet netfather blocked6\n",
+        "flush set inet netfather blocked4\n"
+        "flush set inet netfather blocked6\n",
     ]
 
 
@@ -68,7 +71,43 @@ def test_nftables_rollback_clears_set_without_deleting_table(monkeypatch) -> Non
     assert result.blocked_ips == ()
     scripts = [text for _, text in calls if text]
     assert scripts == [
-        "flush set inet netfather blocked4\n",
-        "flush set inet netfather blocked4\n",
+        "flush set inet netfather blocked4\n"
+        "flush set inet netfather blocked6\n",
+        "flush set inet netfather blocked4\n"
+        "flush set inet netfather blocked6\n",
     ]
     assert not any("delete table" in (text or "") for _, text in calls)
+
+
+def test_nftables_preview_supports_ipv4_and_ipv6() -> None:
+    preview = NftablesBackend().preview(["192.168.1.21", "fd00::21"])
+    assert "set blocked4 { type ipv4_addr; elements = { 192.168.1.21 } }" in preview
+    assert "set blocked6 { type ipv6_addr; elements = { fd00::21 } }" in preview
+    assert "ip saddr @blocked4 drop;" in preview
+    assert "ip6 saddr @blocked6 drop;" in preview
+    assert "ip daddr @blocked4 drop;" in preview
+    assert "ip6 daddr @blocked6 drop;" in preview
+
+
+def test_nftables_apply_updates_ipv4_and_ipv6_sets_atomically(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(args, *, input_text=None):
+        calls.append((args, input_text))
+        return SimpleNamespace(returncode=0, stdout="existing table", stderr="")
+
+    monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
+    monkeypatch.setattr("firewall.backends._run", fake_run)
+
+    result = NftablesBackend().apply(["192.168.1.21", "fd00::21"], apply=True)
+
+    assert result.applied is True
+    assert result.blocked_ips == ("192.168.1.21", "fd00::21")
+    scripts = [text for _, text in calls if text]
+    assert scripts[1] == (
+        "flush set inet netfather blocked4\n"
+        "flush set inet netfather blocked6\n"
+        "add element inet netfather blocked4 { 192.168.1.21 }\n"
+        "add element inet netfather blocked6 { fd00::21 }\n"
+    )
+    assert scripts[1] == scripts[2]
