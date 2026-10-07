@@ -48,6 +48,7 @@ def test_firewall_sync_never_blocks_local_or_gateway_ip(tmp_path: Path, monkeypa
         "firewall.engine.get_network_status",
         lambda: SimpleNamespace(local_ip="192.168.1.10", gateway="192.168.1.1"),
     )
+    monkeypatch.setattr("firewall.engine.get_local_ipv6_addresses", lambda: set())
 
     engine = FirewallEngine(
         db,
@@ -77,7 +78,7 @@ def test_firewall_apply_rejects_unverified_enforcement_topology(tmp_path: Path) 
         db.close()
 
 
-def test_gateway_enforcement_requires_ipv4_forwarding(tmp_path: Path, monkeypatch) -> None:
+def test_gateway_enforcement_requires_dual_stack_forwarding(tmp_path: Path, monkeypatch) -> None:
     db = Database(tmp_path / "firewall-gateway.db")
     db.init_db()
     engine = FirewallEngine(
@@ -90,9 +91,9 @@ def test_gateway_enforcement_requires_ipv4_forwarding(tmp_path: Path, monkeypatc
             )
         ),
     )
-    monkeypatch.setattr(engine, "_ipv4_forwarding_enabled", lambda: False)
+    monkeypatch.setattr(engine, "_ip_forwarding_enabled", lambda: False)
     try:
-        with pytest.raises(ConfigError, match="IPv4 forwarding"):
+        with pytest.raises(ConfigError, match="IPv4 and IPv6 forwarding"):
             engine.sync(apply=True)
     finally:
         db.close()
