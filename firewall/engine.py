@@ -8,7 +8,7 @@ from core.time_utils import utc_now
 from manager.event_manager import EventManager
 from manager.policy_engine import PolicyEngine
 from firewall.backends import get_firewall_backend
-from network.interface import get_local_ipv4_addresses, get_network_status
+from network.interface import get_local_ipv4_addresses, get_local_ipv6_addresses, get_network_status
 
 
 class FirewallEngine:
@@ -24,14 +24,18 @@ class FirewallEngine:
         status = get_network_status()
         return {
             *get_local_ipv4_addresses(),
+            *get_local_ipv6_addresses(),
             *{value for value in (status.local_ip, status.gateway) if value},
         }
 
     @staticmethod
-    def _ipv4_forwarding_enabled() -> bool:
+    def _ip_forwarding_enabled() -> bool:
         try:
             with open("/proc/sys/net/ipv4/ip_forward", encoding="ascii") as handle:
-                return handle.read().strip() == "1"
+                ipv4 = handle.read().strip() == "1"
+            with open("/proc/sys/net/ipv6/conf/all/forwarding", encoding="ascii") as handle:
+                ipv6 = handle.read().strip() == "1"
+            return ipv4 and ipv6
         except OSError:
             return False
 
@@ -42,9 +46,9 @@ class FirewallEngine:
                 "Gerçek ağ trafiği enforcement için firewall.enforcement_topology "
                 "gateway veya inline olarak açıkça ayarlanmalıdır."
             )
-        if topology == "gateway" and not self._ipv4_forwarding_enabled():
+        if topology == "gateway" and not self._ip_forwarding_enabled():
             raise ConfigError(
-                "Gateway enforcement seçildi ancak Linux IPv4 forwarding etkin değil."
+                "Gateway enforcement seçildi ancak Linux IPv4 ve IPv6 forwarding etkin değil."
             )
 
     def sync(self, *, apply: bool | None = None):
