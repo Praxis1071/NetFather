@@ -81,6 +81,24 @@ class NftablesBackend(FirewallBackend):
                 raise RuntimeError(f"nft apply failed: {result.stderr.strip()}")
             return FirewallResult(self.name, True, tuple(ips), "NetFather nftables table created", script)
 
+        # Upgrade a table created by older NetFather versions without deleting
+        # it.  This preserves existing counters and blocking state while adding
+        # the IPv6 set/rules required by the dual-stack backend.
+        if "set blocked6" not in existing.stdout:
+            upgrade_script = (
+                f"add set inet {self.table} blocked6 {{ type ipv6_addr; }}\n"
+                f"add rule inet {self.table} input ip6 saddr @blocked6 drop\n"
+                f"add rule inet {self.table} output ip6 daddr @blocked6 drop\n"
+                f"add rule inet {self.table} forward ip6 saddr @blocked6 drop\n"
+                f"add rule inet {self.table} forward ip6 daddr @blocked6 drop\n"
+            )
+            checked_upgrade = _run([nft, "-c", "-f", "-"], input_text=upgrade_script)
+            if checked_upgrade.returncode != 0:
+                raise RuntimeError(f"nft IPv6 upgrade validation failed: {checked_upgrade.stderr.strip()}")
+            upgraded = _run([nft, "-f", "-"], input_text=upgrade_script)
+            if upgraded.returncode != 0:
+                raise RuntimeError(f"nft IPv6 upgrade failed: {upgraded.stderr.strip()}")
+
         # Existing NetFather state is updated in one nft transaction.  Do not
         # delete/recreate the table: that would unnecessarily reset counters,
         # briefly remove enforcement, and make rollback more fragile.
