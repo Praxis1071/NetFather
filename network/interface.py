@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import socket
+import ipaddress
 import subprocess
 from dataclasses import dataclass
 
@@ -87,6 +88,29 @@ def _linux_network_status() -> NetworkStatus:
 
     status.local_ip = status.local_ip or _socket_local_ip()
     return status
+
+
+def get_local_ipv6_addresses() -> set[str]:
+    """Return configured global, private, or link-local IPv6 addresses."""
+    ip_binary = shutil.which("ip")
+    if ip_binary is None:
+        return set()
+    raw = _run_process([ip_binary, "-o", "-6", "addr", "show"])
+    if not raw:
+        return set()
+    addresses: set[str] = set()
+    for line in raw.splitlines():
+        match = re.search(r"\binet6\s+([^/\s]+)", line)
+        if not match:
+            continue
+        address = match.group(1).split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if ip.is_global or ip.is_private or ip.is_link_local:
+            addresses.add(str(ip))
+    return addresses
 
 
 def get_local_ipv4_addresses() -> set[str]:
