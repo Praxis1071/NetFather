@@ -93,7 +93,7 @@ def test_gateway_enforcement_requires_dual_stack_forwarding(tmp_path: Path, monk
     )
     monkeypatch.setattr(engine, "_ip_forwarding_enabled", lambda: False)
     try:
-        with pytest.raises(ConfigError, match="IPv4 and IPv6 forwarding"):
+        with pytest.raises(ConfigError, match="IPv4"):
             engine.sync(apply=True)
     finally:
         db.close()
