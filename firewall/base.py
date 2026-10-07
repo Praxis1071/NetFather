@@ -12,13 +12,21 @@ class FirewallResult:
     preview: str = ""
 
 def normalize_local_ips(values: list[str]) -> list[str]:
+    """Normalize private/link-local IPv4 and IPv6 addresses for enforcement."""
     out: list[str] = []
     for value in values:
-        ip = ipaddress.ip_address(value)
-        if ip.version != 4:
-            continue
+        ip = ipaddress.ip_address(value.split("%", 1)[0])
         if not (ip.is_private or ip.is_link_local):
-            raise ValueError(f"Firewall yalnız yerel/private IPv4 adreslerini kabul eder: {value}")
-        if str(ip) not in out:
-            out.append(str(ip))
-    return sorted(out)
+            raise ValueError(
+                f"Firewall yalnız yerel/private IPv4 veya IPv6 adreslerini kabul eder: {value}"
+            )
+        normalized = str(ip)
+        if normalized not in out:
+            out.append(normalized)
+    return sorted(
+        out,
+        key=lambda value: (
+            ipaddress.ip_address(value).version,
+            int(ipaddress.ip_address(value)),
+        ),
+    )
