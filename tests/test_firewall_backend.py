@@ -8,7 +8,7 @@ def test_existing_nftables_table_is_updated_without_recreation(monkeypatch) -> N
 
     def fake_run(args, *, input_text=None):
         calls.append((args, input_text))
-        return SimpleNamespace(returncode=0, stdout="existing table", stderr="")
+        return SimpleNamespace(returncode=0, stdout="table inet netfather { set blocked4 { type ipv4_addr; } set blocked6 { type ipv6_addr; } }", stderr="")
 
     monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
     monkeypatch.setattr("firewall.backends._run", fake_run)
@@ -36,7 +36,7 @@ def test_existing_nftables_table_can_be_cleared_without_recreation(monkeypatch) 
 
     def fake_run(args, *, input_text=None):
         calls.append((args, input_text))
-        return SimpleNamespace(returncode=0, stdout="existing table", stderr="")
+        return SimpleNamespace(returncode=0, stdout="table inet netfather { set blocked4 { type ipv4_addr; } set blocked6 { type ipv6_addr; } }", stderr="")
 
     monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
     monkeypatch.setattr("firewall.backends._run", fake_run)
@@ -94,7 +94,7 @@ def test_nftables_apply_updates_ipv4_and_ipv6_sets_atomically(monkeypatch) -> No
 
     def fake_run(args, *, input_text=None):
         calls.append((args, input_text))
-        return SimpleNamespace(returncode=0, stdout="existing table", stderr="")
+        return SimpleNamespace(returncode=0, stdout="table inet netfather { set blocked4 { type ipv4_addr; } set blocked6 { type ipv6_addr; } }", stderr="")
 
     monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
     monkeypatch.setattr("firewall.backends._run", fake_run)
@@ -111,3 +111,29 @@ def test_nftables_apply_updates_ipv4_and_ipv6_sets_atomically(monkeypatch) -> No
         "add element inet netfather blocked6 { fd00::21 }\n"
     )
     assert scripts[1] == scripts[2]
+
+
+def test_existing_legacy_table_is_upgraded_to_ipv6_without_recreation(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(args, *, input_text=None):
+        calls.append((args, input_text))
+        if args[1:4] == ["list", "table", "inet"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout="table inet netfather { set blocked4 { type ipv4_addr; } }",
+                stderr="",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
+    monkeypatch.setattr("firewall.backends._run", fake_run)
+
+    result = NftablesBackend().apply(["fd00::21"], apply=True)
+
+    assert result.applied is True
+    scripts = [text for _, text in calls if text]
+    assert any("add set inet netfather blocked6 { type ipv6_addr; }" in text for text in scripts)
+    assert any("add rule inet netfather input ip6 saddr @blocked6 drop" in text for text in scripts)
+    assert any("flush set inet netfather blocked6" in text for text in scripts)
+    assert not any("delete table" in (text or "") for _, text in calls)
