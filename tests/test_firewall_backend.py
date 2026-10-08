@@ -137,3 +137,47 @@ def test_existing_legacy_table_is_upgraded_to_ipv6_without_recreation(monkeypatc
     assert any("add rule inet netfather input ip6 saddr @blocked6 drop" in text for text in scripts)
     assert any("flush set inet netfather blocked6" in text for text in scripts)
     assert not any("delete table" in (text or "") for _, text in calls)
+
+
+def test_nftables_reads_actual_dual_stack_set_state(monkeypatch) -> None:
+    def fake_run(args, *, input_text=None):
+        set_name = args[-1]
+        payload = {
+            "nftables": [
+                {
+                    "set": {
+                        "family": "inet",
+                        "table": "netfather",
+                        "name": set_name,
+                        "type": "ipv4_addr" if set_name == "blocked4" else "ipv6_addr",
+                        "elem": ["192.168.1.21"] if set_name == "blocked4" else ["fd00::21"],
+                    }
+                }
+            ]
+        }
+        import json
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
+    monkeypatch.setattr("firewall.backends._run", fake_run)
+
+    assert NftablesBackend().read_blocked_ips() == ("192.168.1.21", "fd00::21")
+
+
+def test_nftables_state_read_rejects_unexpected_element(monkeypatch) -> None:
+    import json
+
+    def fake_run(args, *, input_text=None):
+        set_name = args[-1]
+        payload = {"nftables": [{"set": {
+            "family": "inet", "table": "netfather", "name": set_name,
+            "type": "ipv4_addr", "elem": [{"unexpected": True}],
+        }}]}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr("firewall.backends.shutil.which", lambda name: "/usr/sbin/nft")
+    monkeypatch.setattr("firewall.backends._run", fake_run)
+
+    import pytest
+    with pytest.raises(RuntimeError, match="beklenmeyen element"):
+        NftablesBackend().read_blocked_ips()
