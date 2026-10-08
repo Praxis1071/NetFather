@@ -113,8 +113,14 @@ class FirewallEngine:
         expected = tuple(normalize_local_ips(
             [ip for ip in requested_blocked if ip not in protected]
         ))
-        actual = self.backend.read_blocked_ips()
-        drifted = actual != expected
+        try:
+            actual = self.backend.read_blocked_ips()
+            read_error = None
+        except Exception as exc:
+            actual = None
+            read_error = str(exc)
+
+        drifted = read_error is not None or actual != expected
         if drifted:
             EventManager(self.db).record(
                 "firewall_drift",
@@ -123,7 +129,8 @@ class FirewallEngine:
                 metadata={
                     "backend": self.backend.name,
                     "expected": list(expected),
-                    "actual": list(actual),
+                    "actual": list(actual) if actual is not None else None,
+                    "read_error": read_error,
                     "timestamp": utc_now().isoformat(),
                 },
             )
