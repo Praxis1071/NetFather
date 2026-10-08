@@ -8,6 +8,7 @@ from core.time_utils import utc_now
 from manager.event_manager import EventManager
 from manager.policy_engine import PolicyEngine
 from firewall.backends import get_firewall_backend
+from firewall.base import normalize_local_ips
 from network.interface import get_local_ipv4_addresses, get_local_ipv6_addresses, get_network_status
 
 
@@ -61,6 +62,14 @@ class FirewallEngine:
 
         try:
             result = self.backend.apply(blocked, apply=should_apply)
+            if should_apply and result.applied and hasattr(self.backend, "read_blocked_ips"):
+                expected = tuple(normalize_local_ips(blocked))
+                actual = self.backend.read_blocked_ips()
+                if actual != expected:
+                    raise RuntimeError(
+                        "nftables kernel state desired policy ile eşleşmiyor: "
+                        f"expected={expected!r}, actual={actual!r}"
+                    )
         except Exception as exc:
             EventManager(self.db).record(
                 "firewall_error",
