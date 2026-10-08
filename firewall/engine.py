@@ -98,6 +98,37 @@ class FirewallEngine:
         )
         return result
 
+    def detect_drift(self) -> bool:
+        """Return whether kernel firewall state differs from effective policy.
+
+        This is observation-only: it never changes nftables state. Callers can
+        schedule this check independently from policy synchronization so an
+        external change is detectable between enforcement writes.
+        """
+        if not hasattr(self.backend, "read_blocked_ips"):
+            return False
+
+        requested_blocked = PolicyEngine(self.db).blocked_ips()
+        protected = self._protected_ips()
+        expected = tuple(normalize_local_ips(
+            [ip for ip in requested_blocked if ip not in protected]
+        ))
+        actual = self.backend.read_blocked_ips()
+        drifted = actual != expected
+        if drifted:
+            EventManager(self.db).record(
+                "firewall_drift",
+                "Kernel firewall state differs from effective policy.",
+                severity="error",
+                metadata={
+                    "backend": self.backend.name,
+                    "expected": list(expected),
+                    "actual": list(actual),
+                    "timestamp": utc_now().isoformat(),
+                },
+            )
+        return drifted
+
     def rollback(self, *, apply: bool = False):
         result = self.backend.rollback(apply=apply)
         EventManager(self.db).record(
