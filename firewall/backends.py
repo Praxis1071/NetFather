@@ -16,6 +16,49 @@ class FirewallBackend:
         raise NotImplementedError
     def apply(self, blocked_ips: list[str], *, apply: bool = False) -> FirewallResult:
         raise NotImplementedError
+    def read_blocked_ips(self) -> tuple[str, ...]:
+        """Read NetFather's actual kernel state from nftables named sets."""
+        nft = shutil.which("nft")
+        if not nft:
+            raise RuntimeError("nft komutu bulunamadı.")
+        values: list[str] = []
+        for set_name in ("blocked4", "blocked6"):
+            result = _run([nft, "-j", "list", "set", "inet", self.table, set_name])
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"nft state read failed for {set_name}: {result.stderr.strip()}"
+                )
+            try:
+                import json
+
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"nft JSON state okunamadı: {exc}") from exc
+            set_objects = [
+                item.get("set")
+                for item in payload.get("nftables", [])
+                if isinstance(item, dict) and isinstance(item.get("set"), dict)
+            ]
+            if len(set_objects) != 1:
+                raise RuntimeError(f"nft {set_name} state bulunamadı veya belirsiz.")
+            set_object = set_objects[0]
+            if (
+                set_object.get("family") != "inet"
+                or set_object.get("table") != self.table
+                or set_object.get("name") != set_name
+            ):
+                raise RuntimeError(f"nft {set_name} state doğrulanamadı.")
+            elements = set_object.get("elem", [])
+            if elements is None:
+                continue
+            if not isinstance(elements, list):
+                elements = [elements]
+            for element in elements:
+                if not isinstance(element, str):
+                    raise RuntimeError(f"nft {set_name} beklenmeyen element biçimi döndürdü.")
+                values.append(element)
+        return tuple(normalize_local_ips(values))
+
     def rollback(self, *, apply: bool = False) -> FirewallResult:
         raise NotImplementedError
 
