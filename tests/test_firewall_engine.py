@@ -97,3 +97,36 @@ def test_gateway_enforcement_requires_dual_stack_forwarding(tmp_path: Path, monk
             engine.sync(apply=True)
     finally:
         db.close()
+
+
+def test_firewall_sync_rejects_kernel_state_mismatch(tmp_path: Path, monkeypatch) -> None:
+    db = Database(tmp_path / "firewall-reconcile.db")
+    db.init_db()
+    devices = DeviceManager(db)
+    devices.add_device("Tablet", "02:00:00:00:00:03", ip="192.168.1.21")
+    profiles = ProfileManager(db)
+    profiles.create_profile("Tablet", "blocked", internet_mode="blocked")
+
+    monkeypatch.setattr("firewall.engine.get_local_ipv4_addresses", lambda: set())
+    monkeypatch.setattr("firewall.engine.get_local_ipv6_addresses", lambda: set())
+    monkeypatch.setattr(
+        "firewall.engine.get_network_status",
+        lambda: SimpleNamespace(local_ip="192.168.1.10", gateway="192.168.1.1"),
+    )
+
+    class MismatchBackend(CaptureBackend):
+        def read_blocked_ips(self):
+            return ("192.168.1.22",)
+
+    engine = FirewallEngine(
+        db,
+        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True, enforcement_topology="inline")),
+    )
+    backend = MismatchBackend()
+    engine.backend = backend
+
+    try:
+        with pytest.raises(RuntimeError, match="kernel state desired policy"):
+            engine.sync(apply=True)
+    finally:
+        db.close()
