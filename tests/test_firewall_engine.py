@@ -203,3 +203,38 @@ def test_firewall_detect_drift_returns_false_when_state_matches(tmp_path: Path, 
         assert EventManager(db).list_events(event_type="firewall_drift") == []
     finally:
         db.close()
+
+
+def test_firewall_detect_drift_treats_missing_firewall_state_as_drift(tmp_path: Path, monkeypatch) -> None:
+    db = Database(tmp_path / "firewall-missing.db")
+    db.init_db()
+    devices = DeviceManager(db)
+    devices.add_device("Tablet", "02:00:00:00:00:03", ip="192.168.1.21")
+    profiles = ProfileManager(db)
+    profiles.create_profile("Tablet", "blocked", internet_mode="blocked")
+
+    monkeypatch.setattr("firewall.engine.get_local_ipv4_addresses", lambda: set())
+    monkeypatch.setattr("firewall.engine.get_local_ipv6_addresses", lambda: set())
+    monkeypatch.setattr(
+        "firewall.engine.get_network_status",
+        lambda: SimpleNamespace(local_ip="192.168.1.10", gateway="192.168.1.1"),
+    )
+
+    class MissingBackend(CaptureBackend):
+        def read_blocked_ips(self):
+            raise RuntimeError("nft table missing")
+
+    engine = FirewallEngine(
+        db,
+        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True, enforcement_topology="inline")),
+    )
+    engine.backend = MissingBackend()
+
+    try:
+        assert engine.detect_drift() is True
+        event = EventManager(db).list_events(event_type="firewall_drift")[0]
+        metadata = json.loads(event.metadata_json or "{}")
+        assert metadata["actual"] is None
+        assert metadata["read_error"] == "nft table missing"
+    finally:
+        db.close()
