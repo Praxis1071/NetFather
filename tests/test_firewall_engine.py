@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -165,8 +166,9 @@ def test_firewall_detect_drift_is_observation_only(tmp_path: Path, monkeypatch) 
         events = EventManager(db).list_events(event_type="firewall_drift")
         assert len(events) == 1
         assert events[0].severity == "error"
-        assert events[0].metadata["expected"] == ["192.168.1.21"]
-        assert events[0].metadata["actual"] == []
+        metadata = json.loads(events[0].metadata_json or "{}")
+        assert metadata["expected"] == ["192.168.1.21"]
+        assert metadata["actual"] == []
     finally:
         db.close()
 
