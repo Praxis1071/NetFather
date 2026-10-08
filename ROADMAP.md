@@ -1100,7 +1100,7 @@ This is the single source of truth for the practical implementation order. The o
 77. [ ] Add preflight enforcement preview.
 78. [ ] Validate every enforcement target against identity confidence and topology.
 79. [ ] Make topology changes fail safely instead of guessing.
-80. [ ] Implement desired-policy → kernel-state reconciliation.
+80. [x] Implement desired-policy → kernel-state reconciliation after each enforcement sync and verify the kernel-owned nftables sets.
 81. [ ] Detect external modification of the NetFather firewall state.
 82. [ ] Add safe repair/reapply workflow.
 83. [ ] Persist desired enforcement state across restart.
