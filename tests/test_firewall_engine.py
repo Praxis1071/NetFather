@@ -9,6 +9,7 @@ from core.database import Database
 from firewall.base import FirewallResult
 from firewall.engine import FirewallEngine
 from manager.device_manager import DeviceManager
+from manager.event_manager import EventManager
 from manager.profile_manager import ProfileManager
 
 
