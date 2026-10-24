@@ -238,3 +238,70 @@ def test_firewall_detect_drift_treats_missing_firewall_state_as_drift(tmp_path: 
         assert metadata["read_error"] == "nft table missing"
     finally:
         db.close()
+
+
+def test_firewall_sync_restores_previous_state_instead_of_clearing_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db = Database(tmp_path / "firewall-safe-recovery.db")
+    db.init_db()
+    devices = DeviceManager(db)
+    devices.add_device("Tablet", "02:00:00:00:00:03", ip="192.168.1.21")
+    ProfileManager(db).create_profile("Tablet", "blocked", internet_mode="blocked")
+
+    monkeypatch.setattr("firewall.engine.get_local_ipv4_addresses", lambda: set())
+    monkeypatch.setattr("firewall.engine.get_local_ipv6_addresses", lambda: set())
+    monkeypatch.setattr(
+        "firewall.engine.get_network_status",
+        lambda: SimpleNamespace(local_ip="192.168.1.10", gateway="192.168.1.1"),
+    )
+
+    class StatefulBackend(CaptureBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.state = ("192.168.1.22",)
+            self.apply_count = 0
+
+        def read_blocked_ips(self):
+            return self.state
+
+        def apply(self, blocked_ips, *, apply=False):
+            self.calls.append((list(blocked_ips), apply))
+            self.apply_count += 1
+            if self.apply_count == 1:
+                # Simulate a post-apply state that fails read-back verification.
+                self.state = ("192.168.1.99",)
+            else:
+                self.state = tuple(blocked_ips)
+            return FirewallResult(self.name, apply, tuple(blocked_ips), "stateful")
+
+        def rollback(self, *, apply=False):
+            raise AssertionError("sync must not use destructive rollback")
+
+    engine = FirewallEngine(
+        db,
+        Config(
+            firewall=FirewallConfig(
+                backend="none",
+                enforcement_enabled=True,
+                enforcement_topology="inline",
+                rollback_on_error=True,
+            )
+        ),
+    )
+    backend = StatefulBackend()
+    engine.backend = backend
+
+    try:
+        with pytest.raises(RuntimeError, match="kernel state desired policy"):
+            engine.sync(apply=True)
+
+        assert backend.apply_count == 2
+        assert backend.calls == [
+            (["192.168.1.21"], True),
+            (["192.168.1.22"], True),
+        ]
+        assert backend.read_blocked_ips() == ("192.168.1.22",)
+        assert EventManager(db).list_events(event_type="firewall_recovery_error") == []
+    finally:
+        db.close()

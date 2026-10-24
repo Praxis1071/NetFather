@@ -194,3 +194,12 @@ This file should be updated whenever a finding is fixed, superseded, or split in
 - [ ] Verify this contribution in a fresh PR CI run and a supported GTK session.
 
 Baseline evidence: [upstream CI run 36848741182](https://github.com/Praxis1071/NetFather/actions/runs/36848741182) passed Python 3.12/3.13/3.14, editable installation and both privileged nftables tests. This does not substitute for testing the new contribution.
+
+
+## Latest follow-up — 2026-10-24 — safe sync recovery
+
+- Found a safety issue in `FirewallEngine.sync()`: its error handler called backend rollback, which clears NetFather blocking sets and could remove previously active blocks after a verification failure.
+- Replaced automatic set clearing with snapshot-based recovery. When the prior managed set can be read, a failed sync compares current state with the snapshot and restores the prior set only if it changed; the restored state is read back and verified.
+- If the previous state cannot be read reliably, the engine does not perform a blind/destructive rollback. It records a `firewall_recovery_error` event explaining that the kernel state may be uncertain and needs verification.
+- Added a regression test that simulates a post-apply state mismatch and verifies that the pre-existing block set is restored rather than cleared.
+- Fresh CI and privileged network-namespace verification are still required before treating this change as fully verified.

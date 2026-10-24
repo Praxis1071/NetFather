@@ -558,8 +558,8 @@ Make packet-level enforcement atomic, isolated, observable, and recoverable.
 - [x] Existing-flow semantics.
 - [x] Network-namespace integration coverage.
 - [x] Baseline nftables runtime CI verification (run 36848741182); new contributions require their own CI verification.
-- [ ] Failure injection during policy application.
-- [ ] Prove pre-existing NetFather state survives a failed update.
+- [~] Add failure-injection coverage for policy-application verification failure; backend command-failure and privileged namespace recovery cases still need explicit coverage.
+- [~] Add a regression test proving a readable pre-existing NetFather blocking set is restored after a failed verification; fresh CI and privileged integration verification remain required.
 - [ ] Prove unrelated nftables state remains untouched.
 - [ ] Persist and restore enforcement state across restart.
 - [ ] Reconcile desired policy with actual nftables state.

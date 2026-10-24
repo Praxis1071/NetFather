@@ -60,11 +60,25 @@ class FirewallEngine:
         protected = self._protected_ips()
         blocked = [ip for ip in requested_blocked if ip not in protected]
 
+        # Snapshot the current managed set before writing, when the backend
+        # supports read-back.  A missing table on first install is allowed:
+        # the nftables create transaction itself is atomic.
+        previous_blocked = None
+        snapshot_error = None
+        can_read_state = callable(getattr(self.backend, "read_blocked_ips", None))
+        if should_apply and self.config.firewall.rollback_on_error and can_read_state:
+            try:
+                previous_blocked = tuple(
+                    normalize_local_ips(self.backend.read_blocked_ips())
+                )
+            except Exception as snapshot_exc:
+                snapshot_error = str(snapshot_exc)
+
         try:
             result = self.backend.apply(blocked, apply=should_apply)
-            if should_apply and result.applied and hasattr(self.backend, "read_blocked_ips"):
+            if should_apply and result.applied and can_read_state:
                 expected = tuple(normalize_local_ips(blocked))
-                actual = self.backend.read_blocked_ips()
+                actual = tuple(normalize_local_ips(self.backend.read_blocked_ips()))
                 if actual != expected:
                     raise RuntimeError(
                         "nftables kernel state desired policy ile eşleşmiyor: "
@@ -78,10 +92,49 @@ class FirewallEngine:
                 metadata={"backend": self.backend.name},
             )
             if should_apply and self.config.firewall.rollback_on_error:
-                try:
-                    self.backend.rollback(apply=True)
-                except Exception:
-                    pass
+                recovery_error = None
+                if previous_blocked is None:
+                    recovery_error = (
+                        "Önceki firewall durumu güvenilir biçimde okunamadığı için "
+                        "otomatik geri yükleme yapılmadı; mevcut kernel durumu belirsiz olabilir ve ayrıca doğrulanmalıdır."
+                    )
+                    if snapshot_error:
+                        recovery_error += f" Okuma hatası: {snapshot_error}"
+                    elif not can_read_state:
+                        recovery_error += " Backend read_blocked_ips() desteklemiyor."
+                else:
+                    try:
+                        current = tuple(
+                            normalize_local_ips(self.backend.read_blocked_ips())
+                        )
+                        if current != previous_blocked:
+                            self.backend.apply(list(previous_blocked), apply=True)
+                            restored = tuple(
+                                normalize_local_ips(self.backend.read_blocked_ips())
+                            )
+                            if restored != previous_blocked:
+                                raise RuntimeError(
+                                    "Geri yükleme doğrulaması başarısız: "
+                                    f"expected={previous_blocked!r}, actual={restored!r}"
+                                )
+                    except Exception as recovery_exc:
+                        recovery_error = str(recovery_exc)
+                if recovery_error:
+                    EventManager(self.db).record(
+                        "firewall_recovery_error",
+                        recovery_error,
+                        severity="error",
+                        metadata={
+                            "backend": self.backend.name,
+                            "previous_blocked": (
+                                list(previous_blocked)
+                                if previous_blocked is not None
+                                else None
+                            ),
+                            "snapshot_error": snapshot_error,
+                            "original_error": str(exc),
+                        },
+                    )
             raise
 
         EventManager(self.db).record(
