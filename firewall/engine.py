@@ -96,7 +96,7 @@ class FirewallEngine:
                 if previous_blocked is None:
                     recovery_error = (
                         "Önceki firewall durumu güvenilir biçimde okunamadığı için "
-                        "otomatik geri yükleme yapılmadı; mevcut durum değiştirilmedi."
+                        "otomatik geri yükleme yapılmadı; mevcut kernel durumu belirsiz olabilir ve ayrıca doğrulanmalıdır."
                     )
                     if snapshot_error:
                         recovery_error += f" Okuma hatası: {snapshot_error}"
