@@ -198,7 +198,6 @@ Phase I tamamlandıktan sonra bu kapı tamamlanmadan Phase II'ye geçilmez.
 ## 4.0 Product UI/UX design system — visual direction
 
 The GUI is a first-class part of the final product, not a cosmetic layer added after the networking work. NetFather should feel like a polished, trustworthy Linux-native network control center: technically powerful underneath, calm and immediately understandable on the surface.
-
 ### Design target
 
 Use a GNOME-native GTK4 + Libadwaita control-center architecture as the visual foundation. GNOME's current HIG is explicitly designed around GTK4 and Libadwaita, and Libadwaita provides the adaptive navigation, split-view, sidebar, card, dark/light, and high-contrast primitives needed for this product.
@@ -397,8 +396,7 @@ Show observed network relationships without inventing unsupported topology.
 - [ ] Interface relationships.
 - [ ] Bridge relationships.
 - [ ] VLAN relationships where observed.
-- [ ] AP/client relationships where observed.
-- [ ] Distinguish observed and inferred relationships.
+- [ ] AP/client relationships where observed.- [ ] Distinguish observed and inferred relationships.
 - [ ] Keep unknown relationships explicitly unknown.
 
 ### Done when
@@ -597,8 +595,7 @@ Phase IV tamamlandıktan sonra bu kapı tamamlanmadan Phase V'e geçilmez.
 - [ ] Policy → target → topology → privileged service → firewall → kernel zincirini uçtan uca test et.
 - [ ] IPv4 ve IPv6 enforcement yollarını doğrula.
 - [ ] Self-lockout, gateway ve yanlış hedef korumalarını test et.
-- [ ] Başarısız transaction, rollback ve recovery senaryolarını test et.
-- [ ] Existing TCP/UDP flow davranışını doğrula.
+- [ ] Başarısız transaction, rollback ve recovery senaryolarını test et.- [ ] Existing TCP/UDP flow davranışını doğrula.
 - [ ] External firewall değişikliği, restart ve topology değişikliği senaryolarını test et.
 - [ ] Gerçek kernel state ile desired state tutarlılığını doğrula.
 - [ ] Kritik enforcement hatalarını gider ve CI sonuçlarını doğrula.
@@ -797,8 +794,7 @@ Phase VII tamamlandıktan sonra bu kapı tamamlanmadan Phase VIII'e geçilmez.
 ## 10.1 Database and migration safety
 
 - [x] ORM model registry.
-- [x] Observation-table schema regression test.
-- [x] Additive legacy SQLite schema upgrade regression coverage.
+- [x] Observation-table schema regression test.- [x] Additive legacy SQLite schema upgrade regression coverage.
 - [ ] Define explicit schema migration/versioning.
 - [ ] Test upgrades across supported releases.
 - [ ] Test interrupted migrations.
@@ -997,7 +993,6 @@ Phase X tamamlandıktan sonra final ürün kabulüne geçmeden önce bu kapı ta
 # 13. Active execution queue
 
 This is the single source of truth for the practical implementation order. The order is derived from the final product goal and the Linux architecture constraints above. Later items may be developed in parallel only when doing so does not weaken an earlier dependency or safety guarantee.
-
 ## 1. Restore a trustworthy verification baseline
 
 1. [x] Baseline test collection/syntax verified in upstream CI at `cb0f200`; local GTK dependency requirements remain explicit.
@@ -1198,7 +1193,6 @@ A NetFather feature is not complete simply because its UI exists.
 For security-sensitive network features, completion requires:
 
 **implementation + unit tests + integration tests + failure/recovery behavior + documentation + GUI state/feedback + privilege review + CI verification**
-
 A feature remains **[~] partially complete** whenever the implementation exists but required runtime verification is still missing.
 
 ---
@@ -1225,3 +1219,32 @@ Whenever a significant implementation change lands:
 4. Keep docs/TECHNICAL-DEBT.md focused on engineering findings.
 5. Keep ROADMAP.md focused on product sequencing.
 6. Never mark an enforcement/security item complete solely because a unit test passes when integration verification is required.
+
+---
+
+# 16. Package-free desktop integration
+
+## Goal
+
+Allow users to launch NetFather directly from the Linux desktop application menu without requiring a distribution package such as `.deb`, `.rpm`, or an Arch package.
+
+## Tasks
+
+- [ ] Add a user-level GNOME/Linux desktop launcher (`.desktop`) that appears automatically in the applications menu.
+- [ ] Provide a suitable NetFather application icon and install it in the appropriate user-level icon location.
+- [ ] Add an install script that registers the launcher and icon without moving, deleting, or unexpectedly modifying the project source.
+- [ ] Add a matching uninstall script that removes only the files created by the installer.
+- [ ] Check the required Python environment and GTK4/PyGObject system dependencies; report missing requirements clearly.
+- [ ] Launch NetFather using a reliable project/environment path without requiring the user to open a terminal.
+- [ ] Keep the GUI unprivileged; do not solve privileged network operations by launching the whole application as root.
+- [ ] Verify installation, application-menu visibility, launch, dependency-error feedback, and uninstall on CachyOS GNOME first.
+- [ ] Document the package-free installation method and its limitations, including that the source files and runtime dependencies must remain available.
+- [ ] Keep this workflow separate from distribution packaging; packaging decisions remain governed by Phase X.
+
+## Done when
+
+- NetFather appears in the desktop applications menu after installation and launches without a terminal.
+- The installer is repeatable and does not overwrite unrelated user files.
+- Uninstallation removes only the launcher/icon files installed by NetFather.
+- Missing dependencies produce an actionable message instead of a silent launch failure.
+- Security-sensitive network operations continue to follow the unprivileged-GUI and privileged-service architecture.
