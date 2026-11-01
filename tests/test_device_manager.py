@@ -137,6 +137,17 @@ def test_sync_discovered_hosts_updates_only_registered(manager: DeviceManager) -
     assert device.last_seen is not None
 
 
+def test_sync_cached_hosts_does_not_replace_registered_ip_or_last_seen(manager: DeviceManager) -> None:
+    manager.add_device(name="Phone", mac="AA:BB:CC:DD:EE:11", ip="192.168.1.20")
+    original = manager.get_device_by_name("Phone")
+    assert manager.sync_discovered_hosts([
+        DiscoveredHost(ip="192.168.1.99", mac=original.mac, state="STALE"),
+    ]) == 0
+    current = manager.get_device_by_name("Phone")
+    assert current.ip == original.ip
+    assert current.last_seen == original.last_seen
+
+
 def test_reconcile_persists_ip_history_and_survives_database_reopen(tmp_path: Path) -> None:
     from network.discovery import DiscoveredHost
 

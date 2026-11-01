@@ -12,6 +12,7 @@ from core.logger import get_logger
 from network.device import lookup_vendor
 from network.identity import DeviceObservation
 from network.interface import get_network_status
+from network.presence import neighbor_state
 
 log = get_logger("network.discovery")
 _COMMAND_TIMEOUT_SECONDS_DEFAULT = 5
@@ -32,6 +33,15 @@ class DiscoveredHost:
     services: tuple[str, ...] = field(default_factory=tuple)
     scan_method: str | None = None
     latency_ms: float | None = None
+
+    @property
+    def presence_confirmed(self) -> bool:
+        """Whether this observation can refresh a device's reachability clock.
+
+        Legacy callers may omit state for a positive observation. OS parsers
+        always supply a state, using NONE when NUD state is unknown.
+        """
+        return self.state is None or self.state.upper() == "REACHABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +86,20 @@ def _merge_discovery(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
             identity_index[(host.ip, host.interface)] = index
             continue
         current = result[index]
-        for attr in ("interface", "mac", "state", "vendor", "hostname", "device_type", "os_hint"):
+        # A confirmed path wins over cached paths for the same MAC, regardless
+        # of address-family/interface ordering. Active replies also supersede
+        # old DHCP addresses retained in the passive cache.
+        prefer_host = host.presence_confirmed and (
+            not current.presence_confirmed or host.source == "active"
+        )
+        if prefer_host:
+            if host.ip != current.ip or host.interface:
+                current.interface = host.interface
+            current.ip = host.ip
+            current.state = host.state
+        elif host.ip == current.ip and not current.interface:
+            current.interface = host.interface
+        for attr in ("mac", "vendor", "hostname", "device_type", "os_hint"):
             value = getattr(host, attr)
             if value and (not getattr(current, attr) or host.source in {"active", "deep", "active+passive"}): setattr(current, attr, value)
         if host.open_tcp_ports: current.open_tcp_ports = tuple(sorted(set(current.open_tcp_ports) | set(host.open_tcp_ports)))
@@ -101,9 +124,10 @@ def _parse_ip_neigh_output(raw_output: str) -> list[DiscoveredHost]:
         ip_text, interface = tokens[0], tokens[2]
         if _is_meaningless_address(ip_text): continue
         remaining = tokens[3:]; mac = _valid_mac_or_none(remaining[1]) if len(remaining) >= 2 and remaining[0] == "lladdr" else None; state_tokens = remaining[2:] if mac else remaining
-        if any(state.upper() in {"FAILED", "INCOMPLETE"} for state in state_tokens):
+        state = neighbor_state(state_tokens) or "NONE"
+        if state in {"FAILED", "INCOMPLETE"}:
             continue
-        hosts.append(DiscoveredHost(ip=ip_text, interface=interface, mac=mac, state=state_tokens[-1] if state_tokens else None))
+        hosts.append(DiscoveredHost(ip=ip_text, interface=interface, mac=mac, state=state))
     return _dedupe(hosts)
 
 def _scan_linux(timeout_seconds: int) -> list[DiscoveredHost]:
@@ -193,7 +217,7 @@ def _enrich(hosts: list[DiscoveredHost], *, hostname_resolution: bool, vendor_de
 def observations_from_hosts(hosts: list[DiscoveredHost]) -> list[DeviceObservation]:
     observations: list[DeviceObservation] = []
     for host in hosts:
-        if not host.mac: continue
+        if not host.mac or not host.presence_confirmed: continue
         source = host.source.strip().lower() or "unknown"; confidence = 0.95 if "active" in source else 0.8
         if "deep" in source: confidence = min(1.0, confidence + 0.03)
         if host.hostname: confidence = min(1.0, confidence + 0.03)

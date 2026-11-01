@@ -54,7 +54,7 @@ Status markers:
 - [ ] Account for randomized Wi-Fi MAC addresses where evidence permits.
 
 ### P1.2 Live presence and event propagation
-- [x] Linux neighbor notifications are monitored and debounced; resolved NUD states are now classified as online transitions.
+- [x] Linux neighbor notifications are monitored and debounced; only REACHABLE NUD events directly refresh online presence. Cache creation and unconfirmed states request reconciliation.
 - [~] Current presence events trigger discovery reconciliation.
 - [x] Turn safe neighbor events into direct device state transitions for known MAC-backed devices; discovery reconciliation remains the safety path.
 - [ ] Add a central runtime event bus.
@@ -190,7 +190,7 @@ This file should be updated whenever a finding is fixed, superseded, or split in
 - [x] Pass manual GTK scans the configured auto-registration and offline grace values captured before dispatch.
 - [~] Surface discovery/deep warnings in GTK status feedback; callback tests exist, graphical runtime QA remains open.
 - [~] Add service-to-SQLite presence integration tests with deterministic clocks and controlled observation sources; real kernel notification coverage remains open.
-- [ ] Define aging of STALE/DELAY/PROBE/PERMANENT neighbor cache evidence so repeated passive samples do not indefinitely imply fresh reachability.
+- [~] Cache-only STALE/DELAY/PROBE/PERMANENT/NOARP/NONE evidence no longer renews presence or replaces the confirmed IP; service/SQLite regression coverage exists, real kernel notification verification remains open.
 - [ ] Verify this contribution in a fresh PR CI run and a supported GTK session.
 
 Baseline evidence: [upstream CI run 36848741182](https://github.com/Praxis1071/NetFather/actions/runs/36848741182) passed Python 3.12/3.13/3.14, editable installation and both privileged nftables tests. This does not substitute for testing the new contribution.
@@ -203,3 +203,12 @@ Baseline evidence: [upstream CI run 36848741182](https://github.com/Praxis1071/N
 - If the previous state cannot be read reliably, the engine does not perform a blind/destructive rollback. It records a `firewall_recovery_error` event explaining that the kernel state may be uncertain and needs verification.
 - Added a regression test that simulates a post-apply state mismatch and verifies that the pre-existing block set is restored rather than cleared.
 - Fresh CI and privileged network-namespace verification are still required before treating this change as fully verified.
+
+## Presence evidence aging — 2026-11-01
+
+- Repeated cache entries previously refreshed both persistent and runtime last_seen indefinitely, while monitor STALE/DELAY/PROBE/PERMANENT/NOARP events could revive offline devices.
+- Extract NUD state separately from router/managed flags. Only REACHABLE neighbor evidence refreshes presence; unknown kernel state is represented as NONE. State-less positive observations remain supported for existing API callers.
+- Keep cache-only entries in discovery inventories, while excluding them from identity/presence writes and automatic registration. Complete scans apply the existing grace to the last confirmed observation; incomplete scans still preserve last-known state.
+- When merging multiple paths for a MAC, choose a confirmed address/interface over a cached one in either ordering; active replies supersede cached DHCP addresses. Full multi-address identity history, IPv6 target selection and topology-scoped expiry remain open.
+- Regression coverage exercises repeated cache polls/events, grace boundaries, single departure/recovery audit events, failed active discovery, unknown cached devices, legacy sync and alternate IPv4/IPv6/interface ordering.
+- Verification baseline: main at `e22a012` passed [CI run 40221763261](https://github.com/Praxis1071/NetFather/actions/runs/40221763261). New contribution verification is recorded in [CONTRIBUTION-PLAN.md](CONTRIBUTION-PLAN.md); this does not close Stabilization Gate I.

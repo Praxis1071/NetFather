@@ -381,7 +381,7 @@ class DeviceManager:
         now = utc_now()
         with self.db.session() as session:
             for host in hosts:
-                if not host.mac:
+                if not host.mac or not host.presence_confirmed:
                     continue
                 try:
                     normalized_mac = normalize_mac(host.mac)
@@ -442,13 +442,15 @@ class DeviceManager:
         neighbour-cache sample from creating false leave events.
         Incomplete scans must set ``mark_missing_offline=False``; their positive
         observations remain useful but absence is not evidence of departure.
+        Cache-only observations do not refresh last_seen, select a current IP,
+        auto-register a device, or extend the grace period.
         """
         now = utc_now(); new_count = updated = offline_count = 0
         seen: set[str] = set()
         with self.db.session() as session:
             names = set(session.scalars(select(Device.name)).all())
             for host in hosts:
-                if not host.mac:
+                if not host.mac or not host.presence_confirmed:
                     continue
                 try: mac = normalize_mac(host.mac)
                 except (TypeError, ValueError, AttributeError): continue

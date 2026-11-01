@@ -13,7 +13,7 @@ from sqlalchemy import select
 from core.database import Database
 from manager.event_manager import EventManager
 from models.device_observation import DeviceObservationRecord
-from network.discovery import DiscoveredHost, DiscoveryError
+from network.discovery import DiscoveredHost, DiscoveryError, _parse_ip_neigh_output
 from network.live_presence import LivePresenceService
 from network.presence import parse_neighbor_event
 
@@ -198,3 +198,92 @@ def test_persistence_failure_does_not_expire_runtime_identity(runtime, monkeypat
     assert not snapshots[-1].complete
     assert service.discovery.resolver.get(MAC).online
     assert device(service).online
+
+
+@pytest.mark.parametrize("state", ["STALE", "DELAY", "PROBE", "PERMANENT", "NOARP", "NONE"])
+def test_cached_polls_and_events_age_out_without_mutating_identity_history(runtime, state):
+    service, clock, passive, active, snapshots = runtime
+    original = device(service)
+    with service.device_manager.db.session() as session:
+        original_history = list(session.scalars(select(DeviceObservationRecord.id)))
+    # A cached alternate address must not replace the last confirmed target.
+    line = f"192.168.1.99 dev wlan0 lladdr {MAC} {state}"
+    for elapsed, expected_online in ((44, True), (1, False), (30, False)):
+        clock[0] += timedelta(seconds=elapsed)
+        service._on_presence_event(parse_neighbor_event(line))
+        passive[0] = _parse_ip_neigh_output(line)
+        service._event_reconcile()
+        assert snapshots[-1].complete
+        assert snapshots[-1].hosts  # Retain the cache as inventory evidence.
+        assert device(service).online == expected_online
+        assert service.discovery.resolver.get(MAC).online == expected_online
+        assert device(service).last_seen == original.last_seen
+        assert device(service).ip == original.ip
+        assert service.discovery.resolver.get(MAC).current_ip == original.ip
+    assert event_count(service, "device_offline") == 1
+    assert event_count(service, "device_ip_changed") == 0
+    with service.device_manager.db.session() as session:
+        assert list(session.scalars(select(DeviceObservationRecord.id))) == original_history
+
+    active[0] = [DiscoveredHost(IP, mac=MAC, source="active", state="REACHABLE")]
+    service._reconcile()
+    service._reconcile()
+    assert device(service).online
+    assert service.discovery.resolver.get(MAC).online
+    assert event_count(service, "device_online") == 1
+
+
+def test_cache_only_unknown_mac_does_not_auto_register_or_create_online_identity(runtime):
+    service, _, passive, _, snapshots = runtime
+    other_mac = "AA:BB:CC:DD:EE:99"
+    passive[0] = _parse_ip_neigh_output(f"192.168.1.99 dev eth0 lladdr {other_mac} PERMANENT")
+    service._reconcile()
+    assert snapshots[-1].new_devices == 0
+    assert service.device_manager.get_device_by_mac(other_mac) is None
+    assert service.discovery.resolver.get(other_mac) is None
+    assert len(snapshots[-1].hosts) == 1
+
+
+def test_cache_only_cycle_preserves_last_known_state_when_active_source_fails(runtime):
+    service, clock, passive, active, snapshots = runtime
+    original = device(service)
+    clock[0] += timedelta(seconds=60)
+    passive[0] = _parse_ip_neigh_output(f"{IP} dev eth0 lladdr {MAC} STALE")
+    active[0] = DiscoveryError("ARP unavailable")
+    service._reconcile()
+    assert not snapshots[-1].complete
+    assert device(service).online
+    assert device(service).last_seen == original.last_seen
+    assert service.discovery.resolver.get(MAC).online
+    assert event_count(service, "device_offline") == 0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_confirmed_path_wins_over_cache_on_other_address_and_interface(runtime, reverse):
+    service, clock, passive, _, snapshots = runtime
+    clock[0] += timedelta(seconds=60)
+    lines = [
+        f"fe80::20 dev wlan0 lladdr {MAC} STALE",
+        f"{IP} dev eth0 lladdr {MAC} REACHABLE",
+    ]
+    passive[0] = _parse_ip_neigh_output("\n".join(reversed(lines) if reverse else lines))
+    service._reconcile()
+    assert snapshots[-1].complete
+    assert device(service).online
+    assert device(service).ip == IP
+    identity = service.discovery.resolver.get(MAC)
+    assert identity.online and identity.current_ip == IP
+    assert event_count(service, "device_offline") == 0
+    assert event_count(service, "device_ip_changed") == 0
+
+
+def test_active_reply_supersedes_cached_dhcp_address(runtime):
+    service, clock, passive, active, _ = runtime
+    clock[0] += timedelta(seconds=60)
+    passive[0] = _parse_ip_neigh_output(f"{IP} dev eth0 lladdr {MAC} STALE")
+    active[0] = [DiscoveredHost("192.168.1.42", mac=MAC, state="REACHABLE", source="active")]
+    service._reconcile()
+    assert device(service).online
+    assert device(service).ip == "192.168.1.42"
+    assert service.discovery.resolver.get(MAC).current_ip == "192.168.1.42"
+    assert event_count(service, "device_ip_changed") == 1
