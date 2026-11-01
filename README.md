@@ -133,7 +133,7 @@ Requirements include **Python 3.12 or newer**. Older releases that ship Python 3
 
 - Linux
 - Python 3.12+
-- GTK 4
+- GTK 4 and Libadwaita 1.4+
 - PyGObject / GObject Introspection
 - iproute2
 - nftables
@@ -150,7 +150,7 @@ Install the native GTK/PyGObject libraries and networking tools with your distri
 **CachyOS / Arch Linux**
 
 ```bash
-sudo pacman -S --needed python python-pip python-gobject gtk4 iproute2 nftables nmap polkit
+sudo pacman -S --needed python python-pip python-gobject gtk4 libadwaita iproute2 nftables nmap polkit
 ```
 
 **Debian 13+ / Ubuntu 24.04+ / Linux Mint based on Ubuntu 24.04+**
@@ -159,14 +159,14 @@ These releases provide Python 3.12 or newer by default. Debian/Ubuntu package na
 
 ```bash
 sudo apt update
-sudo apt install python3 python3-venv python3-pip python3-gi gir1.2-gtk-4.0 \
+sudo apt install python3 python3-venv python3-pip python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
   iproute2 nftables nmap polkit python3-scapy python3-sqlalchemy python3-psutil
 ```
 
 **Fedora (a release providing Python 3.12 or newer)**
 
 ```bash
-sudo dnf install python3 python3-pip python3-gobject gtk4 \
+sudo dnf install python3 python3-pip python3-gobject gtk4 libadwaita \
   iproute nftables nmap polkit python3-scapy python3-sqlalchemy python3-psutil
 ```
 
@@ -174,7 +174,7 @@ sudo dnf install python3 python3-pip python3-gobject gtk4 \
 
 ```bash
 sudo zypper refresh
-sudo zypper install python3 python3-pip python3-gobject gtk4 \
+sudo zypper install python3 python3-pip python3-gobject gtk4 libadwaita \
   iproute2 nftables nmap polkit python3-scapy python3-SQLAlchemy python3-psutil
 ```
 

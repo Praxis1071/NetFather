@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from network.discovery_service import DiscoverySnapshot
 from core.time_utils import utc_now
 from core.i18n import tr
+from core.operations import CancellationToken
 
 
 def page_callbacks():
@@ -20,9 +21,12 @@ def page_callbacks():
     cls = next(node for node in source.body if isinstance(node, ast.ClassDef))
     cls.bases = []
     cls.body = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in {"_scan_finished", "_start_scan"}]
-    namespace = {"DiscoverySnapshot": DiscoverySnapshot, "tr": tr}
+    namespace = {"DiscoverySnapshot": DiscoverySnapshot, "tr": tr, "CancellationToken": CancellationToken}
     exec(compile(ast.Module(body=[cls], type_ignores=[]), str(path), "exec"), namespace)
-    return namespace["DiscoveryPage"]()
+    page = namespace["DiscoveryPage"]()
+    page._progress = lambda stage: None
+    page._load_history = lambda: None
+    return page
 
 
 def test_partial_scan_feedback_includes_warnings_and_previous_state_notice():

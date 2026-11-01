@@ -550,7 +550,7 @@ class DeviceManager:
             self._check_address_conflicts(session, ((path.ip, mac) for mac, paths in groups.items() for path in paths))
         return new_count, updated, offline_count
 
-    def delete_device(self, name: str) -> None:
+    def delete_device(self, name: str, *, expected_id: int | None = None) -> None:
         """
         İsme göre cihazı siler.
 
@@ -559,6 +559,8 @@ class DeviceManager:
         """
         with self.db.session() as session:
             device = self._require_by_name(session, name)
+            if expected_id is not None and device.id != expected_id:
+                raise ValidationError("Device changed during confirmation; reload the inventory.")
             session.add(Event(event_type="device_deleted", description=f"Device deleted: {device.name}", device_mac=device.mac))
             session.delete(device)
             log.info("Cihaz silindi: %s", name)

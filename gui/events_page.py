@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from core.i18n import tr
 
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 from sqlalchemy import select
 
 from core.database import Database
@@ -23,7 +23,12 @@ class EventsPage(Gtk.Box):
         self.count = Gtk.Label(label="", xalign=0); self.count.add_css_class("dim-label"); toolbar.append(self.count); self.append(toolbar)
         self.list_box = Gtk.ListBox(); self.list_box.set_selection_mode(Gtk.SelectionMode.NONE); self.list_box.add_css_class("boxed-list"); self.list_box.set_vexpand(True); self.append(self.list_box)
         self.empty = Gtk.Label(label=tr('No events recorded yet.'), xalign=0); self.empty.add_css_class("dim-label")
+        self._unsubscribe = database.events.subscribe(lambda _: self.refresh(),
+            dispatcher=lambda callback: GLib.idle_add(lambda: (callback(), GLib.SOURCE_REMOVE)[1]))
         self.refresh()
+
+    def cleanup(self):
+        self._unsubscribe()
 
     def refresh(self) -> None:
         if self._busy: return

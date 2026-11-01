@@ -30,12 +30,12 @@ Implemented in the first slice:
 Acceptance evidence: controlled service/SQLite and adapter tests; a privileged
 Linux test exercises actual IPv4/IPv6 neighbor notifications, discovery, cache
 aging, monitor shutdown and restart with durable history. Fresh CI is required
-before the phase gate can close. The Windows baseline's five Linux-specific
+before the phase gate can close. CI run 41345917657 now passes all five jobs, including the new real kernel test (three privileged tests passed). The Windows baseline's five Linux-specific
 test failures are recorded separately from supported Linux results.
 
 ## Phase II — GTK product completion
 
-Pending after Gate I: Libadwaita adaptive shell and workspace layouts; scoped
+Implemented after Gate I; graphical CI verification is in progress: Libadwaita adaptive shell and workspace layouts; scoped
 background tasks, cancellation and lifecycle-safe delivery; consistent states
 and confirmations; complete device evidence/policy/history details; discovery
 progress/capabilities/history; observed/inferred/unknown topology relationships;

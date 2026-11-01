@@ -90,7 +90,12 @@ class TopologyPage(Gtk.Box):
         self._busy = False
         self.refresh_button.set_sensitive(True)
         self._render(topology)
-        devices = [node for node in topology.nodes if node.kind != "router"]
+        evidence = "\n".join(f"{edge.source} → {edge.target}: {edge.evidence} | {edge.detail}" for edge in topology.edges)
+        if not hasattr(self,"evidence_label"):
+            self.evidence_label=Gtk.Label(xalign=0,wrap=True,selectable=True)
+            self.append(self.evidence_label)
+        self.evidence_label.set_text(evidence + "\n" + "\n".join(topology.warnings))
+        devices = [node for node in topology.nodes if node.key.startswith("device:")]
         online = sum(1 for node in devices if node.online)
         restricted = sum(1 for node in devices if not node.allowed)
         gateway = next((node for node in topology.nodes if node.kind == "router"), None)
@@ -115,7 +120,7 @@ class TopologyPage(Gtk.Box):
             return
 
         self.list_box.append(self._node_row(router, is_router=True))
-        devices = [node for node in topology.nodes if node.kind != "router"]
+        devices = [node for node in topology.nodes if node.key.startswith("device:")]
         if not devices:
             empty = Gtk.Label(label=tr('No registered devices yet.'), xalign=0.5)
             empty.set_margin_top(24)

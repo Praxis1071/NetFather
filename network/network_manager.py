@@ -44,7 +44,7 @@ class NetworkManagerObserver:
             for device in self.client.get_devices():
                 self._device(self.client, device)
             return True
-        except (ImportError, ValueError, RuntimeError) as exc:
+        except Exception as exc:
             self.warning = f"NetworkManager signals unavailable; periodic discovery continues: {exc}"
             self.stop()
             return False

@@ -7,7 +7,8 @@ import gi
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+gi.require_version("Adw", "1")
+from gi.repository import Adw, GLib, Gtk
 
 from core.config import load_config
 from core.i18n import set_language, tr
@@ -20,7 +21,7 @@ from network.live_presence import LivePresenceService
 from network.network_manager import NetworkManagerObserver
 
 
-class NetFatherApplication(Gtk.Application):
+class NetFatherApplication(Adw.Application):
     """Own application-wide services while keeping pages view-focused."""
 
     def __init__(self) -> None:

@@ -71,6 +71,7 @@ def test_config_save_round_trip(tmp_path: Path):
 def test_topology_contains_router_and_policy_state(db, monkeypatch):
     DeviceManager(db).add_device("Laptop", "AA:BB:CC:DD:EE:41", ip="192.168.1.41")
     monkeypatch.setattr("network.topology.get_network_status", lambda: NetworkStatus(interface="eth0", local_ip="192.168.1.2", gateway="192.168.1.1"))
+    monkeypatch.setattr("network.topology._link_evidence", lambda: ([], ()))
     topology = build_topology(db)
     assert any(n.kind == "router" for n in topology.nodes) and any(n.label == "Laptop" for n in topology.nodes) and len(topology.edges) == 1
 
