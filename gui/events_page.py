@@ -9,6 +9,7 @@ from sqlalchemy import select
 from core.database import Database
 from gui.tasks import BackgroundTaskRunner
 from models.event import Event
+from core.time_utils import to_local
 
 
 class EventsPage(Gtk.Box):
@@ -47,7 +48,7 @@ class EventsPage(Gtk.Box):
         for event in events:
             row = Gtk.ListBoxRow(); box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3); box.set_margin_top(10); box.set_margin_bottom(10); box.set_margin_start(12); box.set_margin_end(12)
             heading = Gtk.Label(label=f"{event.event_type}  ·  {event.severity.upper()}", xalign=0); heading.add_css_class("heading"); box.append(heading)
-            timestamp = event.timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S") if event.timestamp else tr('Unknown time')
+            timestamp = to_local(event.timestamp).strftime("%Y-%m-%d %H:%M:%S %Z") if event.timestamp else tr('Unknown time')
             detail = Gtk.Label(label=f"{timestamp}  ·  {event.description}", xalign=0, wrap=True); detail.add_css_class("dim-label"); box.append(detail)
             if event.device_mac:
                 device = Gtk.Label(label=tr('Device: {v0}', v0=event.device_mac), xalign=0); device.add_css_class("caption"); box.append(device)

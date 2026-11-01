@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from network.discovery_service import DiscoverySnapshot
-from core.time_utils import utc_now
+from core.time_utils import utc_now, to_local
 from core.i18n import tr
 from core.operations import CancellationToken
 
@@ -21,7 +21,7 @@ def page_callbacks():
     cls = next(node for node in source.body if isinstance(node, ast.ClassDef))
     cls.bases = []
     cls.body = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in {"_scan_finished", "_start_scan"}]
-    namespace = {"DiscoverySnapshot": DiscoverySnapshot, "tr": tr, "CancellationToken": CancellationToken}
+    namespace = {"DiscoverySnapshot": DiscoverySnapshot, "tr": tr, "CancellationToken": CancellationToken, "to_local": to_local}
     exec(compile(ast.Module(body=[cls], type_ignores=[]), str(path), "exec"), namespace)
     page = namespace["DiscoveryPage"]()
     page._progress = lambda stage: None

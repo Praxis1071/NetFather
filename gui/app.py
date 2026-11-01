@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 
 import gi
 
@@ -35,12 +36,31 @@ class NetFatherApplication(Adw.Application):
         self._shutdown_complete = False
         self.network_manager = None
         self._unsubscribe_events = None
+        self._presence_control_lock = threading.Lock()
+        self._presence_request = 0
         self.connect("shutdown", self._on_shutdown)
 
     def _load_css(self) -> None:
         if self.theme is None:
             self.theme = ThemeController()
         self.theme.apply(self.config.ui.theme)
+
+    def set_live_presence(self, enabled: bool) -> None:
+        self._presence_request += 1
+        request = self._presence_request
+        def work():
+            with self._presence_control_lock:
+                if self._shutdown_complete or request != self._presence_request:
+                    return
+                if enabled:
+                    self.live_presence.start()
+                else:
+                    self.live_presence.stop()
+        def failed(error):
+            if not self._shutdown_complete:
+                self.state.network.status_message = tr("Operation failed: {error}", error=error)
+                self.state.notify_changed()
+        self.tasks.submit(work, lambda _: None, failed)
 
     def _on_live_reconciled(self, snapshot: object) -> None:
         def apply_state() -> bool:
@@ -103,7 +123,8 @@ class NetFatherApplication(Adw.Application):
         if self._unsubscribe_events is not None:
             self._unsubscribe_events()
         if self.live_presence is not None:
-            self.live_presence.stop()
+            with self._presence_control_lock:
+                self.live_presence.stop()
         self.tasks.shutdown()
         if self.theme is not None:
             self.theme.cleanup()

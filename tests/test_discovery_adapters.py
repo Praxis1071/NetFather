@@ -63,7 +63,10 @@ def test_networkmanager_signals_and_disconnect_lifecycle(monkeypatch):
     client.get_nm_running = lambda: True
     client.get_devices = lambda: [device]
     monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(require_version=lambda *_: None))
-    monkeypatch.setitem(sys.modules, "gi.repository", SimpleNamespace(NM=SimpleNamespace(Client=SimpleNamespace(new=lambda _: client))))
+    factory = SimpleNamespace(new_finish=lambda _: client,
+        new_async=lambda _cancel, callback, _data: callback(None, object()))
+    monkeypatch.setitem(sys.modules, "gi.repository", SimpleNamespace(NM=SimpleNamespace(Client=factory),
+        Gio=SimpleNamespace(Cancellable=lambda: SimpleNamespace(cancel=lambda: None))))
     changed = []
     observer = NetworkManagerObserver(lambda: changed.append(True))
     assert observer.start()

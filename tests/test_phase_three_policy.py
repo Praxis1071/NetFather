@@ -130,3 +130,9 @@ def test_offline_duplicate_address_is_still_unsafe_for_enforcement(runtime):
     GroupManager(db).assign(GroupManager(db).save("Blocked", "blocked").id, first.id)
     assert not PolicyEngine(db).evaluate_device(first.name).enforcement_eligible
     assert PolicyEngine(db).blocked_ips() == []
+
+
+def test_persistent_utc_event_time_renders_correctly_in_baku():
+    from core.time_utils import to_local
+    from zoneinfo import ZoneInfo
+    assert to_local(datetime(2026, 11, 2, 8), ZoneInfo("Asia/Baku")).hour == 12

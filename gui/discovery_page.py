@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from core.i18n import tr
+from core.time_utils import to_local
 
 from gi.repository import GLib, Gtk
 from core.operations import CancellationToken
@@ -120,7 +121,7 @@ class DiscoveryPage(BasePage):
         self.state.notify_changed()
         self._stop_pulse()
         self._load_history()
-        self.last_scan.set_text(tr('Completed at {v0}', v0=snapshot.completed_at.astimezone().strftime('%H:%M:%S')))
+        self.last_scan.set_text(tr('Completed at {v0}', v0=to_local(snapshot.completed_at).strftime('%H:%M:%S %Z')))
     def _scan_failed(self,error:BaseException)->None:self.state.discovery.running=False; self.state.discovery.error=str(error); self.state.discovery.status_message=tr("Operation failed: {error}", error=error); self.state.notify_changed(); self._stop_pulse()
     def _on_state_changed(self)->None:
         d=self.state.discovery; self.cancel_button.set_sensitive(d.running); self.scan_button.set_sensitive(not d.running); self.progress.set_text(tr('Scanning...') if d.running else (tr('Error') if d.error else tr('Ready'))); self.status.set_text(d.status_message); online=sum(1 for i in d.identities if i.online); self.summary.set_text(tr('Observed: {v0}   |   Known identities: {v1}   |   Online: {v2}', v0=d.scanned, v1=len(d.identities), v2=online)); self._render_devices(d.identities)

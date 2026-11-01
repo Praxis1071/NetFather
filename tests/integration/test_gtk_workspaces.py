@@ -38,8 +38,13 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
     from gui.window import NetFatherWindow
     from manager.device_manager import DeviceManager
     from network.discovery import DiscoveredHost
+    from network.network_manager import NetworkManagerObserver
 
     Adw.init()
+    observer = NetworkManagerObserver(lambda: None)
+    observer.start()
+    pump(GLib, .3)
+    observer.stop()
     set_language(language)
     app = Adw.Application(application_id=f"org.praxis1071.NetFather.Test.{language}", flags=Gio.ApplicationFlags.NON_UNIQUE)
     app.register(None)
@@ -61,6 +66,10 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         pump(GLib, 1)
         assert window.get_width() <= width + 30, (window.get_width(), width)
         assert window.split_view.get_collapsed() == (width < 900)
+        window.lookup_action("workspace").activate(GLib.Variant("s", "Devices"))
+        assert window.workspace.get_visible_child_name() == "Devices"
+        assert window.pages["Profiles"].name_entry.get_tooltip_text()
+        assert window.pages["Rules"].schedule.get_tooltip_text()
         for name, page in window.pages.items():
             window.workspace.set_visible_child_name(name)
             pump(GLib, .3)
@@ -147,6 +156,7 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         if os.environ.get("ADW_DEBUG_HIGH_CONTRAST") == "1":
             assert controller.manager.get_high_contrast()
     finally:
+        observer.stop()
         window.close()
         tasks.shutdown()
         controller.cleanup()

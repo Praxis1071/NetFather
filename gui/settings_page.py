@@ -158,11 +158,10 @@ class SettingsPage(Gtk.Box):
             service = getattr(app, "live_presence", None)
             if service is not None:
                 service.interval_seconds = max(3, config.discovery.live_presence_interval_seconds)
+                app.set_live_presence(config.discovery.live_presence_enabled)
                 if config.discovery.live_presence_enabled:
-                    service.start()
                     status.set_text(tr('Live presence monitoring is enabled.'))
                 else:
-                    service.stop()
                     status.set_text(tr('Live presence monitoring is disabled.'))
         enabled.connect("notify::active", lambda *_args: apply_settings(enabled))
         interval.connect("value-changed", apply_settings)
