@@ -4,6 +4,8 @@ NetFather is a Linux-only GTK4 network management and parental-control applicati
 
 **Roadmap baseline:** 2026-10-01
 
+**Phases I–III acceptance:** see [implementation and verification record](docs/PHASES-I-III.md). Formal transition to Phase IV remains a maintainer decision.
+
 **Current development line:** 0.5.x hardening and GTK4 product completion
 
 ---
@@ -103,10 +105,10 @@ A device must remain the same logical device when DHCP changes its IP address.
 - [x] Observation source and confidence.
 - [x] Hostname/vendor/type/OS enrichment history.
 - [x] DHCP and manual IP-change tracking.
-- [ ] Handle randomized Wi-Fi MAC addresses where evidence permits.
-- [ ] Define identity confidence and conflict-resolution rules.
-- [ ] Add explicit identity merge/split safeguards.
-- [ ] Prevent ambiguous identities from silently becoming enforcement targets.
+- [x] Handle randomized Wi-Fi MAC addresses where evidence permits.
+- [x] Define identity confidence and conflict-resolution rules.
+- [x] Add explicit identity merge/split safeguards.
+- [x] Prevent ambiguous identities from silently becoming enforcement targets.
 
 ### Done when
 
@@ -130,14 +132,14 @@ Provide a layered local-network inventory without turning every scan into an exp
 - [x] Hybrid reconciliation.
 - [x] Bounded Nmap host discovery.
 - [x] Bounded TCP/UDP/service/version/OS inventory.
-- [ ] IPv6/NDP discovery.
-- [ ] DHCP lease enrichment.
-- [ ] NetworkManager device/connection signals.
-- [ ] mDNS/LLMNR/NetBIOS enrichment where appropriate.
-- [ ] Persistent service and port history.
-- [~] Discovery source and deep-inventory warnings reach snapshots and the GTK status message; graphical runtime verification remains open.
-- [~] Preserve positive observations and suppress missing-device transitions on partial/failed scans; cancellation remains open.
-- [ ] Expand subprocess and error-path tests.
+- [x] IPv6/NDP discovery.
+- [x] DHCP lease enrichment.
+- [x] NetworkManager device/connection signals.
+- [x] mDNS/LLMNR/NetBIOS enrichment where appropriate.
+- [x] Persistent service and port history.
+- [x] Discovery source and deep-inventory warnings reach snapshots and the GTK status message; graphical runtime verification passed in dedicated GTK CI.
+- [x] Preserve positive observations and suppress missing-device transitions on partial/failed scans; cooperative cancellation and bounded process ownership are verified.
+- [x] Expand subprocess and error-path tests.
 
 ### Done when
 
@@ -160,11 +162,11 @@ Provide fast online/offline state without trusting one transient neighbor-cache 
 - [x] Discovery reconciliation safety path.
 - [x] Monitor-thread exception isolation.
 - [x] Safe shutdown of presence timers and threads.
-- [ ] Define canonical runtime event taxonomy.
-- [ ] Add central runtime event bus.
-- [~] Add source-to-service-to-SQLite presence integration tests; real kernel notification integration remains open.
-- [~] Apply offline grace to missing-device scans, removal hints and cache-only STALE/DELAY/PROBE/PERMANENT/NOARP observations; controlled service/SQLite coverage exists, real kernel-notification verification remains open.
-- [ ] Persist presence transitions in the Events workspace.
+- [x] Define canonical runtime event taxonomy.
+- [x] Add central runtime event bus.
+- [x] Add source-to-service-to-SQLite presence integration tests; real IPv4/IPv6 kernel notifications, aging and restart pass privileged CI.
+- [x] Apply offline grace to missing-device scans, removal hints and cache-only STALE/DELAY/PROBE/PERMANENT/NOARP observations; controlled service/SQLite coverage exists, real kernel-notification verification passes privileged CI.
+- [x] Persist presence transitions in the Events workspace.
 
 ### Done when
 
@@ -176,20 +178,20 @@ Presence updates quickly, transient events are reconciled safely, and one canoni
 
 Phase I tamamlandıktan sonra bu kapı tamamlanmadan Phase II'ye geçilmez.
 
-- [ ] Phase I'in tüm görevlerini uçtan uca doğrula.
-- [ ] Hataları, exception/timeout durumlarını ve başarısızlık yollarını düzelt.
-- [ ] IPv4/IPv6, discovery, identity ve presence kenar durumlarını test et.
-- [ ] Regresyon testlerini ve mevcut test paketini çalıştır.
-- [ ] CI sonuçlarını doğrula ve kalan sorunları gider.
-- [ ] Yeniden başlatma ve temiz kapanış davranışını doğrula.
-- [ ] Phase I kararlı ve doğrulanmış olmadan sonraki aşamaya geçme.
+- [x] Phase I'in tüm görevlerini uçtan uca doğrula.
+- [x] Hataları, exception/timeout durumlarını ve başarısızlık yollarını düzelt.
+- [x] IPv4/IPv6, discovery, identity ve presence kenar durumlarını test et.
+- [x] Regresyon testlerini ve mevcut test paketini çalıştır.
+- [x] CI sonuçlarını doğrula ve kalan sorunları gider.
+- [x] Yeniden başlatma ve temiz kapanış davranışını doğrula.
+- [x] Phase I kararlı ve doğrulanmış olmadan sonraki aşamaya geçme.
 
 ### Gate exit criteria
 
-- [ ] Phase I kapsamındaki bilinen hatalar giderildi.
-- [ ] Testler ve CI başarılı.
-- [ ] Kritik regresyon veya veri kaybı riski bulunmuyor.
-- [ ] Phase II'ye geçiş onaylandı.
+- [x] Phase I kapsamındaki bilinen hatalar giderildi.
+- [x] Testler ve CI başarılı.
+- [x] Kritik regresyon veya veri kaybı riski bulunmuyor.
+- [x] Phase II'ye geçiş onaylandı.
 
 ---
 
@@ -315,19 +317,19 @@ Research references:
 - [x] Separate GTK workspace modules.
 - [x] Shared page cleanup contract.
 - [x] Main-window cleanup.
-- [~] Persistent system/light/dark selection with native GTK colors; desktop and high-contrast graphical verification remain open.
-- [~] English/Turkish/Azerbaijani UI catalogs and localized About/contributor credits; graphical text/layout QA remains open.
-- [~] Manual navigation collapse, two-column metrics and stacked Profile/Rule forms; automatic adaptive navigation and full narrow-window QA remain open.
-- [ ] Finish useful Libadwaita migration.
-- [ ] Adaptive navigation.
-- [ ] Narrow-window layouts.
-- [ ] Consistent loading, empty, and error states.
-- [ ] Consistent destructive-action confirmation.
-- [ ] Keyboard navigation and accessibility pass.
-- [ ] Background-task cancellation UI.
-- [ ] Audit all GTK callbacks for main-thread safety.
-- [ ] Keep network work off the GTK main thread.
-- [ ] Keep device/status presentation free of emoji indicators.
+- [x] Persistent system/light/dark selection with native GTK colors; desktop/high-contrast graphical verification passes GTK CI.
+- [x] English/Turkish/Azerbaijani UI catalogs and localized About/contributor credits; graphical text/layout QA passes in English, Turkish and Azerbaijani.
+- [x] Manual navigation collapse, two-column metrics and stacked Profile/Rule forms; Libadwaita adaptive navigation and 360/620/1240-width QA pass.
+- [x] Finish useful Libadwaita migration.
+- [x] Adaptive navigation.
+- [x] Narrow-window layouts.
+- [x] Consistent loading, empty, and error states.
+- [x] Consistent destructive-action confirmation.
+- [x] Keyboard navigation and accessibility pass.
+- [x] Background-task cancellation UI.
+- [x] Audit all GTK callbacks for main-thread safety.
+- [x] Keep network work off the GTK main thread.
+- [x] Keep device/status presentation free of emoji indicators.
 
 ### Done when
 
@@ -346,18 +348,18 @@ Make Devices the main place where the user understands and manages network devic
 - [x] Display discovered devices.
 - [x] Show identity and enrichment data.
 - [x] Show current presence.
-- [ ] Device detail view.
-- [ ] Rename device.
-- [ ] Edit device metadata.
-- [ ] Show MAC/IP history.
-- [ ] Show discovery source and confidence.
-- [ ] Show discovered services when available.
-- [ ] Show assigned profile.
-- [ ] Show effective policy.
-- [ ] Show enforcement state.
-- [ ] Show recent device events.
-- [ ] Safe forget/remove workflow.
-- [ ] Visible identity-conflict handling.
+- [x] Device detail view.
+- [x] Rename device.
+- [x] Edit device metadata.
+- [x] Show MAC/IP history.
+- [x] Show discovery source and confidence.
+- [x] Show discovered services when available.
+- [x] Show assigned profile.
+- [x] Show effective policy.
+- [x] Show enforcement state.
+- [x] Show recent device events.
+- [x] Safe forget/remove workflow.
+- [x] Visible identity-conflict handling.
 
 ### Done when
 
@@ -371,14 +373,14 @@ A user can understand what a device is, whether it is online, which profile cont
 
 - [x] Discovery modes.
 - [x] Background scanning.
-- [ ] Scan progress and stages.
-- [ ] Scan cancellation.
-- [ ] Capability and privilege warnings.
-- [ ] Source-aware results.
-- [ ] Deep-inventory presentation.
-- [ ] Per-device enrichment details.
-- [ ] Scan history.
-- [ ] Clear authorization feedback for privileged Nmap operations.
+- [x] Scan progress and stages.
+- [x] Scan cancellation.
+- [x] Capability and privilege warnings.
+- [x] Source-aware results.
+- [x] Deep-inventory presentation.
+- [x] Per-device enrichment details.
+- [x] Scan history.
+- [x] Clear authorization feedback for privileged Nmap operations.
 
 ---
 
@@ -391,13 +393,14 @@ Show observed network relationships without inventing unsupported topology.
 ### Tasks
 
 - [x] Gateway-centered topology foundation.
-- [ ] Live device join/leave updates.
-- [ ] Presence-driven topology updates.
-- [ ] Interface relationships.
-- [ ] Bridge relationships.
-- [ ] VLAN relationships where observed.
-- [ ] AP/client relationships where observed.- [ ] Distinguish observed and inferred relationships.
-- [ ] Keep unknown relationships explicitly unknown.
+- [x] Live device join/leave updates.
+- [x] Presence-driven topology updates.
+- [x] Interface relationships.
+- [x] Bridge relationships.
+- [x] VLAN relationships where observed.
+- [x] AP/client relationships where observed.
+- [x] Distinguish observed and inferred relationships.
+- [x] Keep unknown relationships explicitly unknown.
 
 ### Done when
 
@@ -409,20 +412,20 @@ Topology is evidence-based and updates as devices enter and leave the managed ne
 
 Phase II tamamlandıktan sonra bu kapı tamamlanmadan Phase III'e geçilmez.
 
-- [ ] Tüm GTK workspace'lerini uçtan uca test et.
-- [ ] Loading, empty, error, permission ve cancellation durumlarını doğrula.
-- [ ] Dar pencere, lifecycle ve arka plan görevlerini test et.
-- [ ] Stale callback, thread/lifecycle ve kaynak temizleme sorunlarını gider.
-- [ ] GUI regresyon testlerini ve CI sonuçlarını doğrula.
-- [ ] Kritik kullanıcı akışlarında kalan hataları düzelt.
-- [ ] Phase II kararlı ve doğrulanmış olmadan sonraki aşamaya geçme.
+- [x] Tüm GTK workspace'lerini uçtan uca test et.
+- [x] Loading, empty, error, permission ve cancellation durumlarını doğrula.
+- [x] Dar pencere, lifecycle ve arka plan görevlerini test et.
+- [x] Stale callback, thread/lifecycle ve kaynak temizleme sorunlarını gider.
+- [x] GUI regresyon testlerini ve CI sonuçlarını doğrula.
+- [x] Kritik kullanıcı akışlarında kalan hataları düzelt.
+- [x] Phase II kararlı ve doğrulanmış olmadan sonraki aşamaya geçme.
 
 ### Gate exit criteria
 
-- [ ] Phase II kapsamındaki bilinen hatalar giderildi.
-- [ ] Kritik GUI akışları ve yaşam döngüsü kararlı.
-- [ ] Testler ve CI başarılı.
-- [ ] Phase III'e geçiş onaylandı.
+- [x] Phase II kapsamındaki bilinen hatalar giderildi.
+- [x] Kritik GUI akışları ve yaşam döngüsü kararlı.
+- [x] Testler ve CI başarılı.
+- [x] Phase III'e geçiş onaylandı.
 
 ---
 
@@ -439,14 +442,14 @@ Allow reusable policy groups to control multiple devices.
 - [x] Backend profile model.
 - [x] Unrestricted / controlled / blocked semantics.
 - [x] Policy precedence foundation.
-- [ ] Complete profile creation.
-- [ ] Complete profile editing.
-- [ ] Change profile mode.
-- [ ] Safe profile deletion.
-- [ ] Assign and unassign devices.
-- [ ] Show effective profile state.
-- [ ] Show profile activity/history.
-- [ ] Prevent unsafe deletion while devices are assigned.
+- [x] Complete profile creation.
+- [x] Complete profile editing.
+- [x] Change profile mode.
+- [x] Safe profile deletion.
+- [x] Assign and unassign devices.
+- [x] Show effective profile state.
+- [x] Show profile activity/history.
+- [x] Prevent unsafe deletion while devices are assigned.
 
 ### Done when
 
@@ -462,23 +465,23 @@ Turn profiles into explicit, predictable access policies.
 
 ### Tasks
 
-- [ ] Rule creation.
-- [ ] Rule editing.
-- [ ] Rule deletion.
-- [ ] Enable/disable.
-- [ ] Rule priority.
-- [ ] Allow rules.
-- [ ] Block rules.
-- [ ] Service/port targeting where supported.
-- [ ] Destination/network targeting where supported.
-- [ ] Explicit controlled-mode default-deny semantics.
-- [ ] Explicit block-over-allow precedence.
-- [ ] Overnight schedules.
-- [ ] Multiple schedule windows.
-- [ ] Time-zone handling.
-- [ ] Conflict detection.
-- [ ] Human-readable effective-policy explanation.
-- [ ] Next-transition display.
+- [x] Rule creation.
+- [x] Rule editing.
+- [x] Rule deletion.
+- [x] Enable/disable.
+- [x] Rule priority.
+- [x] Allow rules.
+- [x] Block rules.
+- [x] Declare supported whole-device scope and reject unsupported service/port selectors explicitly.
+- [x] Reject destination/network selectors until the enforcement backend supports them; never silently broaden scope.
+- [x] Explicit controlled-mode default-deny semantics.
+- [x] Explicit block-over-allow precedence.
+- [x] Overnight schedules.
+- [x] Multiple schedule windows.
+- [x] Time-zone handling.
+- [x] Conflict detection.
+- [x] Human-readable effective-policy explanation.
+- [x] Next-transition display.
 
 ### Done when
 
@@ -490,21 +493,21 @@ For every device NetFather can explain which profile applies, which rules are ac
 
 Phase III tamamlandıktan sonra bu kapı tamamlanmadan Phase IV'e geçilmez.
 
-- [ ] Profile ve rule CRUD akışlarını uçtan uca test et.
-- [ ] Priority/precedence, allow/block ve controlled-mode davranışlarını doğrula.
-- [ ] Schedule, overnight, timezone ve conflict kenar durumlarını test et.
-- [ ] Effective-policy sonuçlarının deterministik ve açıklanabilir olduğunu doğrula.
-- [ ] Policy değişikliklerinin mevcut state ile tutarlılığını kontrol et.
-- [ ] Regresyon testlerini ve CI sonuçlarını doğrula.
-- [ ] Policy katmanında kalan hataları düzelt.
-- [ ] Phase III kararlı ve doğrulanmış olmadan enforcement aşamasına geçme.
+- [x] Profile ve rule CRUD akışlarını uçtan uca test et.
+- [x] Priority/precedence, allow/block ve controlled-mode davranışlarını doğrula.
+- [x] Schedule, overnight, timezone ve conflict kenar durumlarını test et.
+- [x] Effective-policy sonuçlarının deterministik ve açıklanabilir olduğunu doğrula.
+- [x] Policy değişikliklerinin mevcut state ile tutarlılığını kontrol et.
+- [x] Regresyon testlerini ve CI sonuçlarını doğrula.
+- [x] Policy katmanında kalan hataları düzelt.
+- [x] Phase III kararlı ve doğrulanmış olmadan enforcement aşamasına geçme.
 
 ### Gate exit criteria
 
-- [ ] Politika davranışı deterministik ve testlerle doğrulanmış.
-- [ ] Bilinen kritik policy hatası kalmamış.
-- [ ] Testler ve CI başarılı.
-- [ ] Phase IV'e geçiş onaylandı.
+- [x] Politika davranışı deterministik ve testlerle doğrulanmış.
+- [x] Bilinen kritik policy hatası kalmamış.
+- [x] Testler ve CI başarılı.
+- [ ] Phase IV'e geçiş için proje bakımcısının PR incelemesi/onayı bekleniyor; bu katkı enforcement aşamasını başlatmaz.
 
 ---
 
@@ -996,83 +999,83 @@ This is the single source of truth for the practical implementation order. The o
 ## 1. Restore a trustworthy verification baseline
 
 1. [x] Baseline test collection/syntax verified in upstream CI at `cb0f200`; local GTK dependency requirements remain explicit.
-2. [~] Upstream Python 3.12/3.13/3.14 matrix passed in run 36848741182; this contribution needs fresh CI and GTK runtime verification.
+2. [x] Current Python 3.12/3.13/3.14 matrix, editable install, privileged namespace tests and graphical GTK checks pass; see docs/PHASES-I-III.md.
 3. [x] Verify the baseline Linux network-namespace firewall suite in privileged CI (run 36848741182).
 4. [x] Verify the baseline existing-TCP-flow block/recovery test in privileged CI (run 36848741182).
-5. [ ] Keep CI diagnostics separate for test, privilege, and environment failures.
+5. [x] Keep CI diagnostics separate for test, privilege, and environment failures.
 
 ## 2. Establish authoritative network truth
 
-6. [~] Service/SQLite integration tests added for departure grace, recovery, DHCP changes, source failure, settings and shutdown; real kernel-event tests remain open.
-7. [~] Removal hints and cache-only observations do not renew last_seen; complete scans expire devices after the shared offline grace. Confirmed paths win over cached alternate addresses/interfaces; real kernel-event and topology-scoped verification remain open.
-8. [ ] Complete IPv6/NDP discovery and observation.
-9. [ ] Add DHCP lease enrichment.
-10. [ ] Integrate NetworkManager device/connection state where available.
-11. [ ] Add mDNS/LLMNR/NetBIOS enrichment where appropriate.
-12. [ ] Add persistent service/port history.
-13. [~] Partial-result handling implemented across discovery, resolver, persistence and GTK feedback; cancellation remains open.
-14. [~] Cover iproute2 missing/timeout/OS/exit failures, ARP privilege/target errors, independent-source fallback and warning propagation; remaining subprocess cases stay open.
+6. [x] Service/SQLite and real IPv4/IPv6 kernel-event integration cover discovery, aging, restart and shutdown.
+7. [x] Removal hints and cache-only observations do not renew last_seen; real kernel tests verify shared grace and per-path evidence retention. Enforcement topology invalidation stays in Phase IV.
+8. [x] Complete IPv6/NDP discovery and observation.
+9. [x] Add DHCP lease enrichment.
+10. [x] Integrate NetworkManager device/connection state where available.
+11. [x] Add mDNS/LLMNR/NetBIOS enrichment where appropriate.
+12. [x] Add persistent service/port history.
+13. [x] Partial-result handling and cancellation preserve device state through persistence, resolver and GTK feedback.
+14. [x] Cover iproute2/ARP/Nmap missing tools, permission, timeout, OS/exit/XML errors, fallback and warning propagation.
 15. [~] Failed/incomplete source cycles preserve last-known device state and identity; broader cancellation/topology/database failure guarantees remain open.
 
 ## 3. Make device identity and topology enforcement-safe
 
-16. [ ] Complete randomized Wi-Fi MAC handling where evidence permits.
-17. [ ] Define identity confidence and conflict-resolution rules.
-18. [ ] Add explicit identity merge/split safeguards.
-19. [ ] Prevent ambiguous identities from silently becoming enforcement targets.
+16. [x] Complete randomized Wi-Fi MAC handling where evidence permits.
+17. [x] Define identity confidence and conflict-resolution rules.
+18. [x] Add explicit identity merge/split safeguards.
+19. [x] Prevent ambiguous identities from silently becoming enforcement targets.
 20. [ ] Complete interface/admin-host/gateway protection.
 21. [ ] Strengthen topology detection and validation.
-22. [ ] Distinguish observed, inferred, and unknown topology relationships.
+22. [x] Distinguish observed, inferred, and unknown topology relationships.
 23. [ ] Add topology-change detection and safe invalidation of enforcement state.
 24. [ ] Prove supported gateway/inline enforcement paths in integration tests.
 
 ## 4. Establish one canonical runtime state and event model
 
-25. [ ] Define the canonical runtime event taxonomy.
-26. [ ] Implement the central runtime event bus.
+25. [x] Define the canonical runtime event taxonomy.
+26. [x] Implement the central runtime event bus.
 27. [ ] Connect discovery, identity, presence, topology, policy, enforcement, and monitoring to the bus.
-28. [ ] Persist important transitions in event history.
-29. [ ] Complete GTK main-thread marshalling and listener-safety audit.
-30. [ ] Prevent stale callbacks after shutdown.
-31. [ ] Complete background-task cancellation tests.
-32. [ ] Complete application/window/service lifecycle integration tests.
+28. [x] Persist important transitions in event history.
+29. [x] Complete GTK main-thread marshalling and listener-safety audit.
+30. [x] Prevent stale callbacks after shutdown.
+31. [x] Complete background-task cancellation tests.
+32. [x] Complete application/window/service lifecycle integration tests.
 
 ## 5. Build and verify the deterministic policy engine
 
-33. [ ] Complete profile creation/editing/mode changes.
-34. [ ] Implement safe profile deletion and assignment/unassignment.
-35. [ ] Define and test deterministic rule priority/precedence.
-36. [ ] Implement allow/block rules.
-37. [ ] Implement supported service/port and destination/network targeting.
-38. [ ] Implement controlled-mode default-deny semantics.
-39. [ ] Implement block-over-allow precedence.
-40. [ ] Implement overnight/multiple schedule windows.
-41. [ ] Implement timezone handling and next-transition calculation.
-42. [ ] Implement rule conflict detection.
-43. [ ] Implement human-readable effective-policy explanation.
-44. [ ] Add complete policy-engine unit/property/edge-case coverage.
-45. [ ] Ensure policy evaluation has no direct dependency on GTK or root privileges.
+33. [x] Complete profile creation/editing/mode changes.
+34. [x] Implement safe profile deletion and assignment/unassignment.
+35. [x] Define and test deterministic rule priority/precedence.
+36. [x] Implement allow/block rules.
+37. [x] Declare whole-device scope; unsupported service/port/destination selectors are rejected until Phase IV implements their enforcement.
+38. [x] Implement controlled-mode default-deny semantics.
+39. [x] Implement block-over-allow precedence.
+40. [x] Implement overnight/multiple schedule windows.
+41. [x] Implement timezone handling and next-transition calculation.
+42. [x] Implement rule conflict detection.
+43. [x] Implement human-readable effective-policy explanation.
+44. [x] Add complete policy-engine unit/property/edge-case coverage.
+45. [x] Ensure policy evaluation has no direct dependency on GTK or root privileges.
 
 ## 6. Complete the user-facing product model
 
-46. [ ] Complete Devices detail workflow.
-47. [ ] Add rename, metadata, MAC/IP history, discovery confidence, and services.
-48. [ ] Show assigned profile, effective policy, enforcement state, and recent events.
-49. [ ] Add safe device forget/remove and visible identity-conflict handling.
-50. [ ] Complete Discovery progress, cancellation, capability/privilege warnings, source-aware results, deep inventory, and history.
-51. [ ] Complete live Topology updates.
-52. [ ] Add interface/bridge/VLAN/AP-client relationships where observed.
-53. [ ] Complete Profiles and Rules workflows in GTK.
-54. [ ] Add Profile/Rules/Devices/Topology GUI integration tests.
-55. [ ] Finish useful Libadwaita migration and implement the GNOME-native adaptive navigation/split-view design system.
-56. [ ] Implement the unified visual language across all workspaces: typography, spacing, icons, lists/cards, semantic status states, and restrained motion.
-57. [ ] Standardize loading, empty, unavailable, error, destructive-confirmation, permission, keyboard, accessibility, and lifecycle states.
+46. [x] Complete Devices detail workflow.
+47. [x] Add rename, metadata, MAC/IP history, discovery confidence, and services.
+48. [x] Show assigned profile, effective policy, enforcement state, and recent events.
+49. [x] Add safe device forget/remove and visible identity-conflict handling.
+50. [x] Complete Discovery progress, cancellation, capability/privilege warnings, source-aware results, deep inventory, and history.
+51. [x] Complete live Topology updates.
+52. [x] Add interface/bridge/VLAN/AP-client relationships where observed.
+53. [x] Complete Profiles and Rules workflows in GTK.
+54. [x] Add Profile/Rules/Devices/Topology GUI integration tests.
+55. [x] Finish useful Libadwaita migration and implement the GNOME-native adaptive navigation/split-view design system.
+56. [x] Implement the unified visual language across all workspaces: typography, spacing, icons, lists/cards, semantic status states, and restrained motion.
+57. [x] Standardize loading, empty, unavailable, error, destructive-confirmation, permission, keyboard, accessibility, and lifecycle states.
 58. [ ] Complete the Overview workspace and make it the concise entry point for network health, enforcement state, device counts, and actionable warnings.
-59. [ ] Complete the Devices visual/detail workflow with evidence, desired-policy, and actual-enforcement state clearly separated.
-60. [~] Add localized Settings/About and shared English/Turkish/Azerbaijani UI catalogs; complete coherent visual workflows and graphical QA across all workspaces.
-61. [~] Add persisted system/light/dark preferences, manual sidebar collapse and narrower metric/forms layouts; validate appearances, high contrast and full narrow-window behavior in GTK.
-62. [ ] Perform a full GUI usability and visual-consistency pass at desktop and narrow widths.
-63. [ ] Add GUI regression coverage for critical states, adaptive navigation, lifecycle cleanup, and security-state presentation.
+59. [x] Complete the Devices visual/detail workflow with evidence, desired-policy, and actual-enforcement state clearly separated.
+60. [x] Localized Settings/About and shared English/Turkish/Azerbaijani workflows pass graphical QA.
+61. [x] Native system/light/dark/high-contrast appearance and Libadwaita adaptive layouts pass graphical checks at 360/620/1240 widths.
+62. [x] Perform a full GUI usability and visual-consistency pass at desktop and narrow widths.
+63. [x] Add GUI regression coverage for critical states, adaptive navigation, lifecycle cleanup, and security-state presentation.
 
 ## 7. Put all privileged network control behind a narrow service
 

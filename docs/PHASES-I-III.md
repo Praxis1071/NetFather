@@ -1,56 +1,102 @@
-# Roadmap Phases I–III implementation and acceptance
+# Roadmap Phases I–III: implementation and acceptance
 
-Requested scope: all unfinished tasks in root ROADMAP Phases I, II and III,
-including each stabilization gate. Baseline: `89f2c2b`. Work is isolated on
-`codex/complete-phases-i-iii`; the project remains Linux-only and GTK4-native.
+Scope: unfinished implementation in root ROADMAP Phases I, II and III, following
+their stabilization order. Baseline: `89f2c2b`. Contribution branch:
+`codex/complete-phases-i-iii`, [PR #9](https://github.com/Praxis1071/NetFather/pull/9).
+Linux-only; the normal GTK process remains unprivileged.
 
 ## Phase I — network truth
 
-Implemented in the first slice:
-
-- Conservative randomized-MAC candidates and explicit, audited identity merge,
-  split and conflict review. Names/vendors never cause automatic identity merges.
-- Stable retained IDs and reviewed MAC aliases; policies never copy silently.
+- Reviewed identity aliases retain the selected device ID. Randomized-MAC
+  candidates require matching metadata and non-overlapping observations. A locally
+  administered MAC is a possibility of randomization, not proof. Names/vendors
+  never cause automatic identity merges. Explicit physical verification is required.
+- Merge refuses concurrent online identities, unresolved conflicts and candidate
+  policies/assignments. Split creates a separate offline device without cloning
+  policies; retained enforcement requires review. Operations are audited.
 - Conflicting address claims remain separate and cannot become enforcement targets.
-- Retain confirmed IPv4/IPv6 addresses and interfaces; prefer IPv4 as the selected
-  address while the enforcement backend remains IPv4-oriented. Link-local IPv6
-  addresses retain interface context and are not promoted to remote enforcement.
-- Persist changed Nmap port/service snapshots independently of identity metadata.
-- Optional unexpired DHCP lease enrichment, bounded system mDNS/LLMNR queries and
-  NetBIOS fallback for already observed local hosts; these are metadata, not proof
-  of presence. Missing optional tools do not invalidate successful observations.
-- Optional libnm device/connection/config signals debounce through the same live
-  reconciliation path. Missing NetworkManager leaves periodic discovery available.
-- Cooperative scan cancellation, bounded cancellable subprocesses and a defined
-  commit boundary. Cancellation before persistence preserves device state.
-- Per-database committed event bus and canonical event names; callbacks are
-  isolated and UI delivery is dispatched to GLib. Rollbacks publish no events.
-- Durable scan outcomes and application-owned observer cleanup.
+  Confidence describes discovery evidence, not authenticated physical identity.
+- Confirmed IPv4/IPv6 paths and interfaces survive restart. IPv4 is preferred for
+  the selected target while this backend remains IPv4-oriented. Unscoped link-local
+  IPv6 is excluded from enforcement. Changed Nmap port/service snapshots persist.
+- Optional unexpired DHCP leases and bounded local mDNS/LLMNR/NetBIOS queries enrich
+  observations; they do not prove presence. Asynchronous libnm state signals request
+  reconciliation. Missing optional tools leave periodic discovery usable.
+- Domain events publish only after commit. Rollbacks publish nothing, subscriber
+  errors are isolated, and GTK consumers dispatch through GLib.
+- Cancellation before the persistence boundary preserves device state. Ordinary
+  children are terminated/reaped cooperatively. Elevated Nmap runs inside a
+  privileged GNU timeout guardian: when a UID change prevents immediate signaling,
+  cancellation waits for bounded cleanup. Default budget: 300 seconds, maximum 600,
+  plus a two-second forced-termination grace. GUI root execution is unnecessary.
 
-Acceptance evidence: controlled service/SQLite and adapter tests; a privileged
-Linux test exercises actual IPv4/IPv6 neighbor notifications, discovery, cache
-aging, monitor shutdown and restart with durable history. Fresh CI is required
-before the phase gate can close. CI run 41345917657 now passes all five jobs, including the new real kernel test (three privileged tests passed). The Windows baseline's five Linux-specific
-test failures are recorded separately from supported Linux results.
+Acceptance: `test_phase_one_core.py`, `test_discovery_adapters.py`, service/SQLite
+tests and `integration/test_presence_netns.py`. The namespace test uses real
+IPv4/IPv6 kernel notifications, aging, shutdown and restart. Five jobs passed in
+[CI 41345917657](https://github.com/Praxis1071/NetFather/actions/runs/41345917657)
+before Phase II implementation began.
 
-## Phase II — GTK product completion
+## Phase II — GTK product
 
-Implemented after Gate I; graphical CI verification is in progress: Libadwaita adaptive shell and workspace layouts; scoped
-background tasks, cancellation and lifecycle-safe delivery; consistent states
-and confirmations; complete device evidence/policy/history details; discovery
-progress/capabilities/history; observed/inferred/unknown topology relationships;
-keyboard/accessibility, appearance and language QA under a supported GTK session.
+- Libadwaita application/window, native appearance, adaptive navigation, keyboard
+  workspace actions and narrow layouts. Native labeled controls and text statuses
+  accompany semantic colors.
+- Page task scopes suppress callbacks after close and cancel pending work. Live
+  presence lifecycle changes run in serialized workers. Late asynchronous
+  NetworkManager initialization cannot reattach after stop.
+- Device details include metadata editing, source/confidence, address/MAC history,
+  services, profiles, desired policy, actual/unverified kernel state and events.
+  Forget, identity and policy operations have explicit confirmations.
+- Discovery exposes stages, cancellation, capability/authorization warnings, deep
+  findings and durable history. Events refresh from committed transitions.
+- Topology distinguishes observed interfaces, bridge ports, VLAN parents and
+  wireless peers. AP/client roles require observed AP mode. Transit is inferred;
+  unsupported attachment remains unknown.
+- Nine workspaces render in English/Turkish/Azerbaijani at 360/620/1240 widths,
+  in light/dark/system appearances and native high contrast. The `gtk-workspaces`
+  artifact contains ordinary/high-contrast screenshots for visual review.
 
-## Phase III — reusable profiles and deterministic policy
+Acceptance: `integration/test_gtk_workspaces.py`, callback/lifecycle tests and
+`test_topology_evidence.py`. Six jobs passed in
+[CI 41346588305](https://github.com/Praxis1071/NetFather/actions/runs/41346588305)
+before Phase III began. Desktop, narrow and high-contrast screenshots were
+inspected. This is a Linux/Xvfb baseline, not validation on every desktop or
+screen reader.
 
-Pending after Gate II: reusable groups and explicit device assignments; complete
-profile/rule CRUD and audit history; priority, allow/block/default-deny semantics;
-multiple/overnight windows, timezone handling, conflicts, explanation and next
-transition; safe handling of unsupported traffic selectors; integration and
-failure-path verification before the enforcement phase.
+## Phase III — profiles and deterministic policy
 
-## Verification discipline
+- Reusable profiles support editing/mode changes, explicit assignment/unassignment,
+  history and deletion guards. Existing device-bound profiles remain active,
+  visible and editable; assigning a reusable group does not erase old policies.
+- Device/profile rules support CRUD, enable/disable, priorities, multiple windows,
+  weekdays and IANA time zones. Policy reads use one database snapshot and instant.
+- Blocked profile > active block > active allow > controlled default deny.
+  Priority chooses within an action; scope and persistent ID break ties stably.
+- Overnight windows belong to their starting weekday. UTC evaluation covers DST
+  gaps and both repeated folds. Effective next transitions skip irrelevant changes.
+- Shared-scope conflict previews cover the next eight days, recomputed as time
+  advances. Device explanations include active inherited/device conflicts.
+  Invalid enabled legacy rules require review.
+- Whole-device policies are supported. Service/port/destination selectors are
+  explicitly rejected until Phase IV supports their kernel enforcement.
+- Stored naive UTC event timestamps render correctly in local time. Additive,
+  idempotent migration retains old rules and their behavior.
 
-The root ROADMAP remains authoritative. Checkboxes represent verified behavior,
-not merely the presence of code. Record CI and graphical evidence here as each
-slice passes; never infer that an unavailable capability was tested successfully.
+Acceptance: `test_phase_three_policy.py`, existing profile/rule/policy tests and
+actual GTK device/profile/rule CRUD, confirmations and assignment flows. Six jobs
+passed for `ca01ef8` in
+[CI 41347465925](https://github.com/Praxis1071/NetFather/actions/runs/41347465925):
+Python 3.12/3.13/3.14, editable installation, three privileged namespace tests and
+ordinary/high-contrast graphical scenarios. Follow-up lifecycle, guardian, UTC
+and migration changes require fresh head CI before merge.
+
+## Verification and authority
+
+Windows/Python 3.13.5 retains five pre-existing Linux-specific failures:
+permissions/geteuid and Windows paths in TOML fixtures. Supported Linux CI is
+authoritative. Compilation, version consistency and diff checks also pass.
+
+Implementation and stabilization evidence do not grant release or Phase IV
+approval on behalf of the project owner. The final Gate III transition checkbox
+is reserved for maintainer PR review. This contribution performs no merge or
+enforcement-phase rollout.

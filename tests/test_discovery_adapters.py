@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import sys
 import subprocess
+import shutil
 
 import pytest
 
@@ -83,3 +84,28 @@ def test_missing_networkmanager_is_an_explicit_optional_capability(monkeypatch):
     assert not observer.start()
     assert "periodic discovery continues" in observer.warning
     observer.stop()
+
+
+def test_elevated_scan_is_guarded_inside_the_authorized_process(monkeypatch):
+    from network.deep_scan import run_deep_scan
+    calls = []
+    monkeypatch.setattr("network.deep_scan.nmap_available", lambda: True)
+    monkeypatch.setattr("network.deep_scan.pkexec_available", lambda: True)
+    monkeypatch.setattr("network.deep_scan.privileged", lambda: False)
+    monkeypatch.setattr("network.deep_scan.shutil.which", lambda name: "/usr/bin/" + name)
+    def run(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="<nmaprun/>", stderr="")
+    monkeypatch.setattr("network.deep_scan.subprocess.run", run)
+    run_deep_scan("192.168.1.0/24", elevate=True, timeout_seconds=300)
+    assert calls[0][:6] == ["pkexec", "/usr/bin/timeout", "--signal=TERM", "--kill-after=2s", "300s", "nmap"]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="GNU/Linux process guardian")
+def test_native_deadline_guardian_terminates_its_child():
+    guardian = shutil.which("timeout")
+    if not guardian:
+        pytest.skip("GNU timeout required")
+    result = subprocess.run([guardian, "--signal=TERM", "--kill-after=1s", ".2s",
+        sys.executable, "-c", "import time; time.sleep(60)"], capture_output=True, timeout=3)
+    assert result.returncode == 124

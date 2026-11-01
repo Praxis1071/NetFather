@@ -110,8 +110,14 @@ def build_topology(db: Database) -> NetworkTopology:
                 continue
             if result.returncode:
                 continue
+            try:
+                info = run_process([iw, "dev", interface, "info"], capture_output=True, text=True, timeout=2, check=False)
+                is_ap = info.returncode == 0 and any(line.strip() == "type AP" for line in info.stdout.splitlines())
+            except Exception:
+                is_ap = False
             stations = {line.split()[1].upper() for line in result.stdout.splitlines() if line.startswith("Station ") and len(line.split()) > 1}
             for device in devices:
                 if device.mac in stations:
-                    topology.edges.append(TopologyEdge(f"interface:{interface}", f"device:{device.mac}", evidence="observed", detail="wireless station reported by kernel"))
+                    topology.edges.append(TopologyEdge(f"interface:{interface}", f"device:{device.mac}", evidence="observed",
+                        detail="AP client observed by kernel" if is_ap else "wireless peer observed; AP/client role unknown"))
     return topology

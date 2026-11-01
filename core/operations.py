@@ -58,7 +58,10 @@ def run_process(args: list[str], *, token: CancellationToken | None = None, **kw
                     os.killpg(process.pid, signal.SIGKILL)
                 else:
                     process.kill()
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
+                # An explicitly authorized elevated child may have changed
+                # UID. Such callers must supply their own privileged deadline
+                # guardian (the deep scanner uses GNU timeout inside pkexec).
                 pass
             process.communicate()
             raise

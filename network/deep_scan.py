@@ -147,6 +147,7 @@ def run_deep_scan(
     if not nmap_available():
         return DeepScanReport(False, privileged(), warnings=("Nmap bulunamadı; deep scan kullanılamıyor.",))
     network = _validate_local_target(target)
+    timeout_seconds = max(30, min(600, int(timeout_seconds)))
     is_privileged = privileged()
     warnings: list[str] = []
     prefix = ["nmap"]
@@ -154,8 +155,14 @@ def run_deep_scan(
         if not pkexec_available():
             warnings.append("pkexec bulunamadı; elevated scan normal kullanıcı yetkisiyle devam ediyor.")
         else:
-            prefix = ["pkexec", "nmap"]
-            is_privileged = True
+            guardian = shutil.which("timeout")
+            if guardian is None:
+                warnings.append("Elevated scan unavailable: GNU timeout is required for bounded privileged cleanup.")
+            else:
+                # The unprivileged GUI cannot always signal a child after
+                # pkexec changes its UID. The elevated guardian owns cleanup.
+                prefix = ["pkexec", guardian, "--signal=TERM", "--kill-after=2s", f"{timeout_seconds}s", "nmap"]
+                is_privileged = True
     ports = max(10, min(1000, int(top_ports)))
 
     # First discover live hosts. The previous implementation used -Pn against

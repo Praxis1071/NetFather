@@ -136,3 +136,28 @@ def test_persistent_utc_event_time_renders_correctly_in_baku():
     from core.time_utils import to_local
     from zoneinfo import ZoneInfo
     assert to_local(datetime(2026, 11, 2, 8), ZoneInfo("Asia/Baku")).hour == 12
+
+
+def test_adjacent_windows_preserve_the_same_daytime_policy_for_every_minute():
+    from datetime import timedelta
+    base = datetime(2026, 11, 2, tzinfo=UTC)
+    for minute in range(24 * 60):
+        when = base + timedelta(minutes=minute)
+        assert active("09:00-17:00", when, timezone="UTC") == active("09:00-12:00;12:00-17:00", when, timezone="UTC")
+
+
+def test_legacy_rule_schema_upgrade_preserves_existing_policy(tmp_path):
+    import sqlite3
+    path = tmp_path / "legacy-rules.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE devices (id INTEGER PRIMARY KEY, name VARCHAR(128) UNIQUE, mac VARCHAR(17) UNIQUE, ip VARCHAR(45), vendor VARCHAR(128), device_type VARCHAR(32), created_at DATETIME, last_seen DATETIME)")
+        connection.execute("INSERT INTO devices (id,name,mac,ip) VALUES (1,'Legacy','02:00:00:00:00:20','192.168.1.20')")
+        connection.execute("CREATE TABLE rules (id INTEGER PRIMARY KEY, device_id INTEGER REFERENCES devices(id), action VARCHAR(16), schedule VARCHAR(32), enabled BOOLEAN, description VARCHAR(256))")
+        connection.execute("INSERT INTO rules VALUES (1,1,'block','00:00-00:00',1,'Retained legacy rule')")
+    db = Database(path); db.init_db(); db.init_db()
+    try:
+        rule = RuleManager(db).get_rule(1)
+        assert rule.priority == 0 and rule.timezone == "local" and rule.description == "Retained legacy rule"
+        assert not PolicyEngine(db).evaluate_device("Legacy").allowed
+    finally:
+        db.close()

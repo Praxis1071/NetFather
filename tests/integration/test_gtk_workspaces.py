@@ -86,6 +86,12 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         assert dialog.get_default_response() == "cancel" and dialog.get_close_response() == "cancel"
         dialog.response("cancel")
         assert confirmed == []
+        device_page = window.pages["Devices"]
+        device_page.name_entry.set_text("Managed Tablet")
+        device_page.type_entry.set_text("tablet")
+        device_page._save(None)
+        pump(GLib, .5)
+        assert DeviceManager(db).get_device_by_name("Managed Tablet").device_type == "tablet"
         from manager.group_manager import GroupManager
         from manager.rule_manager import RuleManager
         from manager.policy_engine import PolicyEngine
@@ -106,12 +112,20 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         profiles.device.set_active_id(str(device.id))
         profiles._assign(None); accept()
         assert not PolicyEngine(db).evaluate_device(device.name).allowed
+        profiles.name_entry.set_text("Family edited")
+        profiles.mode.set_active_id("blocked"); profiles._save(None); accept()
+        assert GroupManager(db).list_profiles()[0].name == "Family edited"
+        profiles.mode.set_active_id("controlled"); profiles._save(None); accept()
         rules = window.pages["Rules"]
         rules.refresh(); pump(GLib, .5)
         rules.target.set_active_id(f"profile:{group.id}")
         rules.action.set_active_id("allow"); rules.schedule.set_text("00:00-00:00"); rules.timezone.set_text("UTC")
         rules._save(None); accept()
         assert PolicyEngine(db).evaluate_device(device.name).allowed
+        rules.list_box.select_row(rules.list_box.get_row_at_index(0))
+        rules.description.set_text("Edited through GTK"); rules.priority.set_value(10)
+        rules._save(None); accept()
+        assert RuleManager(db).all_rules()[0].description == "Edited through GTK"
         rules.list_box.select_row(rules.list_box.get_row_at_index(0))
         rules._toggle(None); accept()
         assert not PolicyEngine(db).evaluate_device(device.name).allowed
@@ -141,6 +155,10 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         assert not discovery.state.discovery.running
         assert discovery.service.snapshot.cancelled
         assert DeviceManager(db).list_devices()[0].online
+        device_page.list_box.select_row(device_page.list_box.get_row_at_index(0))
+        pump(GLib, .3)
+        device_page._delete(None); accept()
+        assert DeviceManager(db).list_devices() == []
         # A queued delivery may exist when a window closes. Scope cancellation
         # must suppress it even when the worker itself already completed.
         delivered = []

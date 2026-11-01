@@ -12,7 +12,8 @@ class Rule(Base):
     """
     Bir cihaza uygulanan zaman bazlı erişim kuralını temsil eder.
 
-    schedule alanı "HH:MM-HH:MM" formatında saklanır (ör. "22:00-07:00").
+    schedule alanı noktalı virgülle ayrılmış "HH:MM-HH:MM" aralıkları içerir.
+    timezone IANA bölgesini, weekdays başlangıç günlerini (0=Pazartesi) tutar.
     action alanı "block" veya "allow" değerini alır.
     """
 
