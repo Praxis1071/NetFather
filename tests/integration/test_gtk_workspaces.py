@@ -64,6 +64,10 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         for name, page in window.pages.items():
             window.workspace.set_visible_child_name(name)
             pump(GLib, .3)
+            if name == "Devices":
+                page.list_box.select_row(page.list_box.get_row_at_index(0))
+                pump(GLib, .5)
+                assert page.detail.get_visible()
             assert page.get_width() > 0
             assert page.get_width() <= window.get_width()
             subprocess.run(["scrot", "-o", str(output / f"{language}-{theme}-{width}-{name.replace(' ', '-')}.png")], check=True, timeout=5)

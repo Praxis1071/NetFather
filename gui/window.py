@@ -126,6 +126,11 @@ class NetFatherWindow(Adw.ApplicationWindow):
                 if root.get_collapsed():
                     root.set_show_sidebar(False)
         navigation.connect("row-selected", on_selected)
+        def sync_navigation(_stack, _property):
+            name = content.get_visible_child_name()
+            if name in pages:
+                navigation.select_row(navigation.get_row_at_index(list(pages).index(name)))
+        content.connect("notify::visible-child-name", sync_navigation)
         navigation.select_row(navigation.get_row_at_index(0))
         root.set_sidebar(sidebar)
         root.set_content(content)
