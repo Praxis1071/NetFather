@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 import re
 import datetime as dt
+import json
 from typing import TYPE_CHECKING
 
 from sqlalchemy import desc, select
@@ -23,6 +24,7 @@ from core.time_utils import utc_now
 from models.device import Device
 from models.device_observation import DeviceObservationRecord
 from models.event import Event
+from models.network_evidence import AddressEvidence, IdentityAlias, ServiceEvidence
 from network.device import lookup_vendor, normalize_mac
 
 if TYPE_CHECKING:
@@ -45,11 +47,53 @@ class DeviceManager:
 
     @staticmethod
     def _find_by_mac(session: Session, mac: str) -> Device | None:
-        return session.scalar(select(Device).where(Device.mac == normalize_mac(mac)))
+        normalized = normalize_mac(mac)
+        device = session.scalar(select(Device).where(Device.mac == normalized))
+        alias = session.get(IdentityAlias, normalized) if device is None else None
+        return session.get(Device, alias.device_id) if alias else device
+
+    @staticmethod
+    def _check_address_conflicts(session: Session, extra_claims=()) -> None:
+        claims: dict[str, dict[int, Device]] = {}
+        for device in session.scalars(select(Device).where(Device.online.is_(True))):
+            if device.ip:
+                claims.setdefault(device.ip, {})[device.id] = device
+        for ip, mac in extra_claims:
+            device = DeviceManager._find_by_mac(session, mac)
+            if device:
+                claims.setdefault(ip, {})[device.id] = device
+        for address, devices in claims.items():
+            if len(devices) < 2:
+                continue
+            for device in devices.values():
+                if not device.identity_conflict:
+                    session.add(Event(event_type="identity_conflict", device_mac=device.mac,
+                        severity="warning", description=f"Multiple online identities claim {address}; enforcement excluded."))
+                device.identity_conflict = True
+                device.identity_note = f"Multiple online identities claim {address}; review required."
 
     @staticmethod
     def _record_observation(session: Session, device: Device, host: "DiscoveredHost", observed_at: dt.datetime) -> None:
         """Persist a new identity observation without duplicating unchanged polls."""
+        if host.ip and host.presence_confirmed:
+            path = session.scalar(select(AddressEvidence).where(AddressEvidence.device_id == device.id,
+                AddressEvidence.ip == host.ip, AddressEvidence.interface == (host.interface or "")))
+            if path is None:
+                path = AddressEvidence(device_id=device.id, ip=host.ip, interface=host.interface or "",
+                    observed_mac=normalize_mac(host.mac), source=host.source,
+                    first_seen=observed_at, last_seen=observed_at)
+                session.add(path)
+            else:
+                path.last_seen = observed_at
+                path.observed_mac = normalize_mac(host.mac)
+                path.source = host.source
+        if host.scan_method == "nmap":
+            tcp, udp, services = map(json.dumps, (host.open_tcp_ports, host.open_udp_ports, host.services))
+            latest_service = session.scalar(select(ServiceEvidence).where(ServiceEvidence.device_id == device.id,
+                ServiceEvidence.ip == host.ip).order_by(ServiceEvidence.observed_at.desc(), ServiceEvidence.id.desc()).limit(1))
+            if latest_service is None or (latest_service.tcp_ports, latest_service.udp_ports, latest_service.services) != (tcp, udp, services):
+                session.add(ServiceEvidence(device_id=device.id, ip=host.ip, observed_at=observed_at,
+                    tcp_ports=tcp, udp_ports=udp, services=services))
         source = (getattr(host, "source", None) or "unknown").strip().lower() or "unknown"
         ip = getattr(host, "ip", None)
         latest = session.scalar(
@@ -361,6 +405,7 @@ class DeviceManager:
                         description=f"{device.name} ağa katıldı",
                         device_mac=device.mac,
                     ))
+                self._check_address_conflicts(session)
             elif device.online:
                 device.online = False
                 session.add(Event(
@@ -445,51 +490,64 @@ class DeviceManager:
         Cache-only observations do not refresh last_seen, select a current IP,
         auto-register a device, or extend the grace period.
         """
-        now = utc_now(); new_count = updated = offline_count = 0
+        from network.identity import preferred_address_key
+        now = utc_now()
+        new_count = updated = offline_count = 0
         seen: set[str] = set()
         with self.db.session() as session:
             names = set(session.scalars(select(Device.name)).all())
+            groups: dict[str, list] = {}
             for host in hosts:
                 if not host.mac or not host.presence_confirmed:
                     continue
-                try: mac = normalize_mac(host.mac)
-                except (TypeError, ValueError, AttributeError): continue
+                try:
+                    mac = normalize_mac(host.mac)
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                known = self._find_by_mac(session, mac)
+                groups.setdefault(known.mac if known else mac, []).append(host)
+            for mac, paths in groups.items():
                 seen.add(mac)
                 device = self._find_by_mac(session, mac)
+                host = min(paths, key=lambda path: (
+                    preferred_address_key(path.ip), path.ip != (device.ip if device else None),
+                    path.ip, path.interface or ""))
                 if device is None:
-                    if not auto_register: continue
+                    if not auto_register:
+                        continue
                     device = Device(name=self._auto_name(host, names), mac=mac, ip=host.ip,
-                                    vendor=host.vendor or lookup_vendor(mac),
-                                    device_type=getattr(host, "device_type", None) or "unknown",
-                                    hostname=getattr(host, "hostname", None),
-                                    os_hint=getattr(host, "os_hint", None), online=True,
-                                    auto_registered=True, created_at=now, last_seen=now)
-                    session.add(device); session.flush(); new_count += 1
-                    self._record_observation(session, device, host, now)
-                    session.add(Event(event_type="device_discovered", description=f"Yeni cihaz keşfedildi: {device.name}", device_mac=mac))
-                    continue
-                was_online = bool(device.online)
-                previous_ip = device.ip
-                device.ip = host.ip or device.ip
-                self._record_observation(session, device, host, now)
-                if host.ip and previous_ip and previous_ip != host.ip:
-                    session.add(Event(event_type="device_ip_changed", description=f"{device.name} IP changed: {previous_ip} -> {host.ip}", device_mac=device.mac))
-                device.vendor = host.vendor or device.vendor
-                device.hostname = getattr(host, "hostname", None) or device.hostname
-                device.os_hint = getattr(host, "os_hint", None) or device.os_hint
-                dtype = getattr(host, "device_type", None)
-                if dtype and dtype != "unknown": device.device_type = dtype
-                device.last_seen = now; device.online = True; updated += 1
-                if not was_online:
-                    session.add(Event(event_type="device_online", description=f"{device.name} ağa katıldı", device_mac=mac))
-
+                        vendor=host.vendor or lookup_vendor(mac), device_type=host.device_type or "unknown",
+                        hostname=host.hostname, os_hint=host.os_hint, online=True,
+                        auto_registered=True, created_at=now, last_seen=now)
+                    session.add(device)
+                    session.flush()
+                    new_count += 1
+                    session.add(Event(event_type="device_discovered", description=f"New device: {device.name}", device_mac=mac))
+                else:
+                    was_online, previous_ip = bool(device.online), device.ip
+                    device.ip = host.ip or device.ip
+                    if host.ip and previous_ip and previous_ip != host.ip:
+                        session.add(Event(event_type="device_ip_changed",
+                            description=f"{device.name} IP changed: {previous_ip} -> {host.ip}", device_mac=mac))
+                    device.vendor = host.vendor or device.vendor
+                    device.hostname = host.hostname or device.hostname
+                    device.os_hint = host.os_hint or device.os_hint
+                    if host.device_type and host.device_type != "unknown":
+                        device.device_type = host.device_type
+                    device.last_seen, device.online = now, True
+                    updated += 1
+                    if not was_online:
+                        session.add(Event(event_type="device_online", description=f"{device.name} online", device_mac=mac))
+                for path in paths:
+                    self._record_observation(session, device, path, now)
             if mark_missing_offline:
                 threshold = now - dt.timedelta(seconds=max(1, offline_after_seconds))
                 for device in session.scalars(select(Device).where(Device.online.is_(True))).all():
-                    if device.mac in seen: continue
-                    if device.last_seen is not None and device.last_seen <= threshold:
-                        device.online = False; offline_count += 1
-                        session.add(Event(event_type="device_offline", description=f"{device.name} ağdan ayrıldı", device_mac=device.mac))
+                    if device.mac not in seen and device.last_seen is not None and device.last_seen <= threshold:
+                        device.online = False
+                        offline_count += 1
+                        session.add(Event(event_type="device_offline", description=f"{device.name} offline", device_mac=device.mac))
+            self._check_address_conflicts(session, ((path.ip, mac) for mac, paths in groups.items() for path in paths))
         return new_count, updated, offline_count
 
     def delete_device(self, name: str) -> None:

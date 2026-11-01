@@ -80,4 +80,4 @@ jobs:
         run: |
           set -euxo pipefail
           PYTHON_BIN="$(command -v python)"
-          sudo -E "${PYTHON_BIN}" -m pytest -vv -s tests/integration/test_firewall_netns.py
+          sudo -E "${PYTHON_BIN}" -m pytest -vv -s tests/integration/test_firewall_netns.py tests/integration/test_presence_netns.py

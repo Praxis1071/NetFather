@@ -18,6 +18,7 @@ class DevicePolicy:
     online: bool
     allowed: bool
     reason: str
+    enforcement_eligible: bool = True
 
 
 class PolicyEngine:
@@ -66,10 +67,11 @@ class PolicyEngine:
             bool(device.online),
             allowed,
             reason,
+            not device.identity_conflict,
         )
 
     def evaluate_all(self) -> list[DevicePolicy]:
         return [self.evaluate_device(d.name) for d in DeviceManager(self.db).list_devices()]
 
     def blocked_ips(self) -> list[str]:
-        return sorted({p.ip for p in self.evaluate_all() if not p.allowed and p.ip})
+        return sorted({p.ip for p in self.evaluate_all() if not p.allowed and p.ip and p.enforcement_eligible})

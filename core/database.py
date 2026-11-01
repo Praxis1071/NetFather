@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.exceptions import DatabaseError
 from core.logger import get_logger
 from models.base import Base
+from models.event import Event
+from core.events import DomainEvent, EventBus
 
 log = get_logger("database")
 
@@ -61,6 +63,7 @@ class Database:
             bind=self.engine, expire_on_commit=False, future=True
         )
         self._initialized = False
+        self.events = EventBus()
 
     def init_db(self) -> None:
         """Şemayı ve uyumlu ek sütunları idempotent biçimde oluşturur."""
@@ -87,6 +90,8 @@ class Database:
                 "os_hint": "VARCHAR(64)",
                 "online": "BOOLEAN NOT NULL DEFAULT 0",
                 "auto_registered": "BOOLEAN NOT NULL DEFAULT 0",
+                "identity_conflict": "BOOLEAN NOT NULL DEFAULT 0",
+                "identity_note": "VARCHAR(512)",
             },
             "events": {
                 "device_mac": "VARCHAR(17)",
@@ -111,9 +116,26 @@ class Database:
     def session(self) -> Iterator[Session]:
         """Otomatik commit/rollback yapan bir SQLAlchemy session context manager."""
         session = self._session_factory()
+        committed_events: dict[int, DomainEvent] = {}
+
+        @event.listens_for(session, "after_flush")
+        def capture_events(flushed, _context):
+            for item in flushed.new:
+                if isinstance(item, Event):
+                    committed_events[item.id] = DomainEvent(
+                        item.id, item.event_type, item.description, item.timestamp,
+                        item.device_mac, item.severity, item.metadata_json,
+                    )
+
+        @event.listens_for(session, "after_rollback")
+        def discard_events(_session):
+            committed_events.clear()
+
+        committed = False
         try:
             yield session
             session.commit()
+            committed = True
         except SQLAlchemyError as exc:
             session.rollback()
             raise DatabaseError(f"Database işlemi başarısız oldu: {exc}") from exc
@@ -122,6 +144,9 @@ class Database:
             raise
         finally:
             session.close()
+        if committed:
+            for item in committed_events.values():
+                self.events.publish(item)
 
     def close(self) -> None:
         """Engine'e ait tüm bağlantı havuzunu serbest bırakır."""

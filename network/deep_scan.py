@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 from core.logger import get_logger
+from core.operations import CancellationToken, run_process
 
 log = get_logger("network.deep_scan")
 
@@ -140,6 +141,7 @@ def run_deep_scan(
     top_ports: int = 100,
     timeout_seconds: int = 300,
     elevate: bool = False,
+    token: CancellationToken | None = None,
 ) -> DeepScanReport:
     """Run an opt-in, bounded deep inventory of a local IPv4 network."""
     if not nmap_available():
@@ -164,8 +166,9 @@ def run_deep_scan(
     if network.endswith("/16"):
         warnings.append("Deep scan /16 ağlarda önce host keşfi yapar; yine de büyük ağlarda tarama süresi artabilir.")
     try:
-        discovery = subprocess.run(
+        discovery = run_process(
             discovery_command,
+            token=token,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -212,8 +215,9 @@ def run_deep_scan(
         command.extend(["-sV", "--version-light"])
     command.extend(["--top-ports", str(ports), "-oX", "-", "-iL", "-"])
     try:
-        completed = subprocess.run(
+        completed = run_process(
             command,
+            token=token,
             input="\n".join(live_ips) + "\n",
             capture_output=True,
             text=True,

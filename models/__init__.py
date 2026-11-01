@@ -28,5 +28,6 @@ from models.device_observation import DeviceObservationRecord
 from models.event import Event
 from models.profile import Profile
 from models.rule import Rule
+from models.network_evidence import IdentityAlias, AddressEvidence, ServiceEvidence, ScanRecord
 
 __all__ = ["Base", "Device", "DeviceObservationRecord", "Event", "Profile", "Rule"]
