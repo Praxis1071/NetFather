@@ -5,6 +5,7 @@ from core.i18n import tr
 
 def confirm(parent, heading, body, action, callback):
     dialog = Adw.MessageDialog.new(parent, heading, body)
+    dialog.set_destroy_with_parent(True)
     dialog.add_response("cancel", tr("Cancel"))
     dialog.add_response("confirm", action)
     dialog.set_response_appearance("confirm", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -12,6 +13,7 @@ def confirm(parent, heading, body, action, callback):
     dialog.set_close_response("cancel")
     dialog.connect("response", lambda _dialog, response: callback() if response == "confirm" else None)
     dialog.present()
+    return dialog
 
 
 def field(label, widget):

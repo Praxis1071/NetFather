@@ -13,6 +13,7 @@ from models.event import Event
 from models.network_evidence import AddressEvidence, IdentityAlias, ServiceEvidence
 from models.profile import Profile
 from models.rule import Rule
+from models.policy_group import ProfileAssignment
 from network.identity import normalize_mac
 
 
@@ -59,7 +60,7 @@ class IdentityManager:
                 raise ValidationError("Both identities are online; merge refused.")
             if retained.identity_conflict or candidate.identity_conflict:
                 raise ValidationError("Resolve address conflicts before merging identities.")
-            if session.scalar(select(Profile.id).where(Profile.device_id == candidate.id)) or session.scalar(
+            if session.get(ProfileAssignment, candidate.id) or session.scalar(select(Profile.id).where(Profile.device_id == candidate.id)) or session.scalar(
                 select(Rule.id).where(Rule.device_id == candidate.id)
             ):
                 raise ValidationError("Unassign candidate policies before merging; policies are never copied silently.")

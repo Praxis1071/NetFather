@@ -132,7 +132,8 @@ class DevicesPage(BasePage):
         self.evidence.set_text(
             f"MAC: {device.mac}\n{tr('Hostname')}: {device.hostname or tr('Unknown')}\n"
             f"{tr('Identity confidence')}: {confidence:.0%} | {sources}\n{device.identity_note or ''}\n"
-            f"{tr('Profiles')}: {profiles}\n{tr('Desired policy')}: {policy.reason}\n"
+            f"{tr('Profiles')}: {profiles}\n{tr('Desired policy')}: {policy.explanation}\n"
+            f"{tr('Next transition')}: {policy.next_transition or tr('None')}\n" + "\n".join(policy.conflicts) + "\n" +
             f"{tr('Enforcement state')}: {result['enforcement']}\n\n{tr('Address history')}\n{addresses or tr('None')}\n\n"
             f"{tr('Discovered services')}\n{services or tr('None')}\n\n{tr('Events')}\n{events or tr('None')}")
         self.resolve.set_sensitive(device.identity_conflict)

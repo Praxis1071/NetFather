@@ -98,6 +98,11 @@ class Database:
                 "severity": "VARCHAR(16) NOT NULL DEFAULT 'info'",
                 "metadata_json": "TEXT",
             },
+            "rules": {
+                "priority": "INTEGER NOT NULL DEFAULT 0",
+                "timezone": "VARCHAR(128) NOT NULL DEFAULT 'local'",
+                "weekdays": "VARCHAR(16) NOT NULL DEFAULT '0,1,2,3,4,5,6'",
+            },
         }
         with self.engine.begin() as connection:
             for table, columns in migrations.items():

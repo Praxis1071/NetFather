@@ -24,7 +24,7 @@ def pump(GLib, seconds=.2):
 
 
 @pytest.mark.parametrize("language,theme,width", [("en", "light", 1240), ("tr", "dark", 620), ("az", "system", 360)])
-def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, language, theme, width):
+def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, monkeypatch, language, theme, width):
     import gi
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
@@ -71,6 +71,67 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
             assert page.get_width() > 0
             assert page.get_width() <= window.get_width()
             subprocess.run(["scrot", "-o", str(output / f"{language}-{theme}-{width}-{name.replace(' ', '-')}.png")], check=True, timeout=5)
+        from gui.dialogs import confirm
+        confirmed = []
+        dialog = confirm(window, "Delete", "Review deletion", "Delete", lambda: confirmed.append(True))
+        assert dialog.get_default_response() == "cancel" and dialog.get_close_response() == "cancel"
+        dialog.response("cancel")
+        assert confirmed == []
+        from manager.group_manager import GroupManager
+        from manager.rule_manager import RuleManager
+        from manager.policy_engine import PolicyEngine
+        def accept():
+            model = Gtk.Window.get_toplevels()
+            dialogs = [model.get_item(i) for i in range(model.get_n_items()) if isinstance(model.get_item(i), Adw.MessageDialog)]
+            assert dialogs
+            dialogs[-1].response("confirm")
+            pump(GLib, .5)
+        profiles = window.pages["Profiles"]
+        profiles.name_entry.set_text("Family")
+        profiles.mode.set_active_id("controlled")
+        profiles._save(None)
+        pump(GLib, .5)
+        group = GroupManager(db).list_profiles()[0]
+        device = DeviceManager(db).list_devices()[0]
+        profiles.list_box.select_row(profiles.list_box.get_row_at_index(0))
+        profiles.device.set_active_id(str(device.id))
+        profiles._assign(None); accept()
+        assert not PolicyEngine(db).evaluate_device(device.name).allowed
+        rules = window.pages["Rules"]
+        rules.refresh(); pump(GLib, .5)
+        rules.target.set_active_id(f"profile:{group.id}")
+        rules.action.set_active_id("allow"); rules.schedule.set_text("00:00-00:00"); rules.timezone.set_text("UTC")
+        rules._save(None); accept()
+        assert PolicyEngine(db).evaluate_device(device.name).allowed
+        rules.list_box.select_row(rules.list_box.get_row_at_index(0))
+        rules._toggle(None); accept()
+        assert not PolicyEngine(db).evaluate_device(device.name).allowed
+        rules.list_box.select_row(rules.list_box.get_row_at_index(0))
+        rules._delete(None); accept()
+        assert RuleManager(db).all_rules() == []
+        profiles.list_box.select_row(profiles.list_box.get_row_at_index(0))
+        profiles._delete(None); accept()
+        assert GroupManager(db).list_profiles()  # Assigned profile deletion is refused.
+        profiles.device.set_active_id(str(device.id)); profiles._unassign(None); accept()
+        profiles.list_box.select_row(profiles.list_box.get_row_at_index(0))
+        profiles._delete(None); accept()
+        assert GroupManager(db).list_profiles() == []
+        discovery = window.pages["Discovery"]
+        release = threading.Event()
+        def scan(_timeout, token=None):
+            release.wait(timeout=2)
+            if token:
+                token.check()
+            return []
+        monkeypatch.setattr("network.discovery._scan_linux", scan)
+        discovery.mode.set_active_id("passive")
+        discovery._start_scan(None)
+        discovery._cancel_scan(None)
+        release.set()
+        pump(GLib, .7)
+        assert not discovery.state.discovery.running
+        assert discovery.service.snapshot.cancelled
+        assert DeviceManager(db).list_devices()[0].online
         # A queued delivery may exist when a window closes. Scope cancellation
         # must suppress it even when the worker itself already completed.
         delivered = []

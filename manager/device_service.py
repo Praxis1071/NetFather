@@ -89,6 +89,7 @@ class DeviceService:
             for item in (*observations, *addresses, *services, *aliases, *events):
                 session.expunge(item)
         from manager.profile_manager import ProfileManager
+        from manager.group_manager import GroupManager
         from firewall.backends import NftablesBackend
         try:
             blocked = NftablesBackend().read_blocked_ips()
@@ -97,7 +98,8 @@ class DeviceService:
             enforcement = f"Unknown / unverified: {exc}"
         return dict(device=device, observations=observations, addresses=addresses, services=services,
             aliases=aliases, events=events, policy=PolicyEngine(self.manager.db).evaluate_device(name),
-            profiles=ProfileManager(self.manager.db).list_profiles(device_name=name), enforcement=enforcement)
+            profiles=[*ProfileManager(self.manager.db).list_profiles(device_name=name),
+                      *GroupManager(self.manager.db).list_profiles(device_id=device.id)], enforcement=enforcement)
 
     def _emit(self) -> None:
         for callback in tuple(self._listeners):
