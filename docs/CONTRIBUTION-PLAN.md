@@ -103,8 +103,8 @@ its graphical/runtime checks pass; the Phase I stabilization gate is unchanged.
 
 ## Next roadmap work
 
-1. Age STALE/DELAY/PROBE/PERMANENT cache evidence without claiming it is fresh
-   reachability; define multiple-address/interface presence aggregation.
+1. Verify cache-evidence aging against real kernel notifications; extend the
+   MAC-level confirmed-path selection into full multi-address/interface history.
 2. Add actual kernel neighbor-notification integration tests and discovery
    cancellation tests that preserve identity and persistence.
 3. Finish IPv6 observation/address selection, identity conflict and topology
@@ -115,3 +115,35 @@ its graphical/runtime checks pass; the Phase I stabilization gate is unchanged.
 
 The root ROADMAP remains the authority for ordering. This plan records only
 the contribution slice and its acceptance boundaries.
+
+## Cache-evidence aging follow-up — 2026-11-01
+
+Baseline: `e22a0125e04bb8389ae7751125fa891c9bf03165`, verified by
+[main CI run 40221763261](https://github.com/Praxis1071/NetFather/actions/runs/40221763261).
+There were no open upstream issues or PRs when this slice began. It follows
+active execution queue item 7 and leaves the Phase I stabilization gate open.
+
+Cache-only NUD observations stay in discovery reports but cannot renew
+last_seen, replace a confirmed IP or create online devices. Only REACHABLE
+neighbor events take the direct presence-update path. Complete reconciliation
+ages cached devices using the existing grace; incomplete reports preserve their
+prior state. Confirmed alternate paths win over cached ones in either ordering,
+and active replies replace cached DHCP targets.
+
+Added 51 regression cases covering parser flags and state, repeated cache
+polls/events, grace boundaries, no duplicate departure/recovery events, partial
+source failure, unknown cached MACs, legacy sync and confirmed alternate paths.
+Tests use actual discovery, identity, manager and SQLite code with controlled
+OS sources/timers; they do not verify real kernel notifications or GTK rendering.
+
+Local environment: Windows / Python 3.13.5, SQLAlchemy 2.0.45. With
+`PYTHONUTF8=1`, the complete suite reports **245 passed, 2 skipped, 5 failed**.
+The same five failures existed before this change: Linux permission/geteuid
+expectations and Windows paths interpolated unescaped into TOML test fixtures.
+The first baseline run without UTF-8 mode had one additional catalog decoding
+failure. The skipped cases require privileged Linux network namespaces.
+Compilation, version consistency and `git diff --check` pass.
+
+Fresh PR CI must verify the supported Python 3.12/3.13/3.14 matrix, editable
+installation and privileged firewall namespace tests. Linux-only scope and all
+remaining real-kernel, GTK, IPv6 target-selection and topology gates are retained.

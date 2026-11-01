@@ -4,12 +4,17 @@ from __future__ import annotations
 import ipaddress
 import subprocess
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Callable
 
 from core.logger import get_logger
 
 log = get_logger("presence")
+_NUD_STATES = {
+    "REACHABLE", "STALE", "DELAY", "PROBE", "PERMANENT", "NOARP",
+    "NONE", "INCOMPLETE", "FAILED",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,26 +27,28 @@ class PresenceEvent:
     mac: str | None = None
 
 
+def neighbor_state(tokens: Iterable[str]) -> str | None:
+    """Extract NUD state without confusing flags such as ``router`` with it."""
+    return next((token.upper() for token in tokens if token.upper() in _NUD_STATES), None)
+
+
 def parse_neighbor_event(line: str) -> PresenceEvent | None:
     """Parse the useful parts of an iproute2 neighbor-monitor line."""
     text = line.strip()
     if not text:
         return None
+    tokens = text.split()
     lower = text.lower()
+    # State belongs to the neighbor attributes, never to the interface name.
+    attributes = tokens[tokens.index("dev") + 2:] if "dev" in tokens else ()
+    state = neighbor_state(attributes)
     kind = "changed"
-    if lower.startswith("deleted") or " nud failed" in lower or lower.endswith(" failed"):
+    if lower.startswith("deleted") or state == "FAILED":
         kind = "removed"
-    elif lower.startswith("added") or lower.startswith("new"):
+    elif state == "REACHABLE":
+        # Cache creation and resolved link-layer addresses do not establish
+        # fresh reachability. Only confirmed NUD transitions refresh presence.
         kind = "added"
-    elif any(
-        state in lower.split()
-        for state in ("reachable", "stale", "delay", "probe", "permanent", "noarp", "router")
-    ):
-        # ip monitor neigh normally reports state transitions as ordinary
-        # neighbor lines rather than prefixing them with "added"/"new".
-        # A resolved NUD state means the MAC is currently present.
-        kind = "added"
-    tokens = text.replace("/", " ").split()
     address = next((token for token in tokens if _looks_like_ip(token)), None)
     mac = None
     for index, token in enumerate(tokens[:-1]):

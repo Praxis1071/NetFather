@@ -163,7 +163,7 @@ Provide fast online/offline state without trusting one transient neighbor-cache 
 - [ ] Define canonical runtime event taxonomy.
 - [ ] Add central runtime event bus.
 - [~] Add source-to-service-to-SQLite presence integration tests; real kernel notification integration remains open.
-- [~] Apply offline grace consistently to missing-device scans and removal hints; aging of STALE/DELAY/PROBE cache entries remains open.
+- [~] Apply offline grace to missing-device scans, removal hints and cache-only STALE/DELAY/PROBE/PERMANENT/NOARP observations; controlled service/SQLite coverage exists, real kernel-notification verification remains open.
 - [ ] Persist presence transitions in the Events workspace.
 
 ### Done when
@@ -1004,7 +1004,7 @@ This is the single source of truth for the practical implementation order. The o
 ## 2. Establish authoritative network truth
 
 6. [~] Service/SQLite integration tests added for departure grace, recovery, DHCP changes, source failure, settings and shutdown; real kernel-event tests remain open.
-7. [~] Removal hints and successful missing-device scans share the offline grace; stale-cache aging remains open.
+7. [~] Removal hints and cache-only observations do not renew last_seen; complete scans expire devices after the shared offline grace. Confirmed paths win over cached alternate addresses/interfaces; real kernel-event and topology-scoped verification remain open.
 8. [ ] Complete IPv6/NDP discovery and observation.
 9. [ ] Add DHCP lease enrichment.
 10. [ ] Integrate NetworkManager device/connection state where available.

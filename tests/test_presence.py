@@ -1,3 +1,5 @@
+import pytest
+
 from network.presence import parse_neighbor_event
 
 
@@ -36,7 +38,32 @@ def test_parse_ipv6_neighbor_event() -> None:
     assert event is not None
     assert event.address == "fe80::1234"
     assert event.mac == "aa:bb:cc:dd:ee:ff"
+    assert event.kind == "changed"
+
+
+@pytest.mark.parametrize("state", ["STALE", "DELAY", "PROBE", "PERMANENT", "NOARP", "NONE", "INCOMPLETE", ""])
+@pytest.mark.parametrize("prefix", ["", "Added ", "New "])
+def test_cache_creation_and_unconfirmed_states_only_request_reconciliation(state, prefix):
+    event = parse_neighbor_event(
+        f"{prefix}192.168.1.25 dev wlan0 lladdr AA:BB:CC:DD:EE:FF router {state}"
+    )
+    assert event.kind == "changed"
+
+
+@pytest.mark.parametrize("flags", ["router REACHABLE", "REACHABLE router", "reachable managed"])
+def test_reachable_neighbor_flags_do_not_hide_confirmation(flags):
+    event = parse_neighbor_event(f"192.168.1.25 dev wlan0 lladdr AA:BB:CC:DD:EE:FF {flags}")
     assert event.kind == "added"
+
+
+def test_deleted_reachable_entry_remains_a_removal_hint():
+    event = parse_neighbor_event("Deleted 192.168.1.25 dev wlan0 lladdr AA:BB:CC:DD:EE:FF REACHABLE")
+    assert event.kind == "removed"
+
+
+def test_interface_named_reachable_is_not_a_confirmation():
+    event = parse_neighbor_event("192.168.1.25 dev reachable lladdr AA:BB:CC:DD:EE:FF STALE")
+    assert event.kind == "changed"
 
 
 

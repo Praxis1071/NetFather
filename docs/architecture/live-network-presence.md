@@ -6,7 +6,7 @@ NetFather now has an optional continuous presence layer for Linux desktops.
 
 The application starts `ip monitor neigh` in a small background thread. Linux exposes neighbor-table creation and deletion notifications through rtnetlink; `ip monitor neigh` consumes that kernel notification stream. This avoids continuous packet capture and does not require the GTK application to run as root.
 
-Positive neighbor events can immediately update a known MAC-backed device. `Deleted` and `FAILED` events only request reconciliation: removal of a cache entry does not prove the device has left every network path. Events are debounced for 750 ms before a lightweight hybrid discovery reconciliation. The device manager remains the persistence source of truth.
+REACHABLE neighbor events can immediately update a known MAC-backed device. Cache creation, unconfirmed states, `Deleted` and `FAILED` events only request reconciliation: a cached binding or its removal does not prove reachability across every network path. Events are debounced for 750 ms before a lightweight hybrid discovery reconciliation. The device manager remains the persistence source of truth.
 
 ## Safety path
 
@@ -35,6 +35,16 @@ Linux neighbor notifications provide low-latency state changes, while periodic d
 - Resolver and persistent state use the same configured missing-device grace. Duplicate polls do not create duplicate departure events; recovery creates an online event once.
 - `DiscoverySnapshot.complete` and `warnings` distinguish a partial scan from a successful empty scan; the Discovery workspace displays the warnings.
 
-The current parser still treats resolved STALE/DELAY/PROBE and permanent entries as positive cache observations. This work does not establish fresh reachability from those states. Evidence aging remains a separate roadmap item. IPv6 address selection/enforcement and topology-scoped expiration also remain open.
+## Cache evidence and aging
+
+The [iproute2 NUD definitions](https://kernel.googlesource.com/pub/scm/network/iproute2/iproute2/+/refs/heads/main/man/man8/ip-neighbour.8) distinguish REACHABLE from pending validation, suspicious cached entries and static bindings. NetFather therefore applies these rules:
+
+- REACHABLE neighbor entries, active ARP replies and live Nmap results can refresh presence. The parser extracts state independently of flags such as router/managed; an unspecified kernel state becomes NONE.
+- STALE, DELAY, PROBE, PERMANENT, NOARP and NONE remain inventory evidence in `DiscoveryReport.hosts` and the list-returning inventory API. They do not refresh last_seen, overwrite the current confirmed IP, auto-register devices or create online identities. Existing API callers may still omit state when supplying a positive observation.
+- On a complete scan with no confirmed observation for a known MAC, the device and its runtime identity expire after the configured grace measured from their last confirmed observation. Repeating cache entries or cache-only monitor events does not restart that clock. Offline means the presence grace expired; it is not proof that the physical device disconnected.
+- A confirmed observation on any merged address/interface keeps that MAC present. It supplies the selected IP/interface even when a cached alternate path appears first. Active replies can replace cached DHCP addresses. Cache evidence does not demote a confirmed observation later in the same scan.
+- A failed source still makes the cycle incomplete and suppresses expiry. Positive observations from other successful sources remain useful.
+
+This is MAC-level presence aggregation using the existing single selected address, not a complete multi-address identity model. IPv6 address selection/enforcement, complete per-path history and topology-scoped expiration remain open. Real kernel notification and GTK runtime verification are also required before closing the Phase I gate.
 
 The unprivileged integration suite in `tests/integration/test_presence_reconciliation.py` runs real services, resolver, SQLite transactions and audit persistence with controlled OS sources and timers. It does not replace a kernel/netns presence test or GTK runtime verification.
