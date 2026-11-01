@@ -41,7 +41,7 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
 
     Adw.init()
     set_language(language)
-    app = Adw.Application(application_id="org.praxis1071.NetFather.Test", flags=Gio.ApplicationFlags.NON_UNIQUE)
+    app = Adw.Application(application_id=f"org.praxis1071.NetFather.Test.{language}", flags=Gio.ApplicationFlags.NON_UNIQUE)
     app.register(None)
     config = Config(config_path=tmp_path / "config.toml")
     config.general.data_dir = str(tmp_path)

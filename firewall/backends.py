@@ -64,7 +64,7 @@ class FirewallBackend:
 
 
 def _run(args: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, input=input_text, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    return subprocess.run(args, input=input_text, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=10)
 
 
 class NftablesBackend(FirewallBackend):
