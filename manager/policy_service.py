@@ -36,7 +36,7 @@ class PolicyService:
             allowed=sum(1 for policy in policies if policy.allowed),
             blocked=sum(1 for policy in policies if not policy.allowed),
             online=sum(1 for policy in policies if policy.online),
-            blocked_ips=tuple(sorted({policy.ip for policy in policies if not policy.allowed and policy.ip})),
+            blocked_ips=tuple(sorted({policy.ip for policy in policies if not policy.allowed and policy.ip and policy.enforcement_eligible})),
         )
 
     def evaluate_device(self, device_name: str) -> DevicePolicy:

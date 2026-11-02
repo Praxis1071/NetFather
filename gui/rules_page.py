@@ -1,156 +1,117 @@
-"""GTK4 scheduled rule management workspace."""
-from __future__ import annotations
-
-from core.i18n import tr
-
+"""Full scheduled rule editing with explicit scope, precedence and timezone."""
 from gi.repository import Gtk
-
-from core.database import Database
-from gui.tasks import BackgroundTaskRunner
+from core.i18n import tr
+from gui.base_page import BasePage
+from gui.dialogs import field, confirm
 from manager.device_manager import DeviceManager
+from manager.group_manager import GroupManager
 from manager.rule_manager import RuleManager
+from manager.schedules import next_change, normalize_windows, normalize_days, zone
 
-
-ACTIONS = ("allow", "block")
-
-
-class RulesPage(Gtk.Box):
-    """Create and review device-bound scheduled rules through GTK4."""
-
-    def __init__(self, database: Database, tasks: BackgroundTaskRunner) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        self.set_margin_top(28)
-        self.set_margin_bottom(28)
-        self.set_margin_start(32)
-        self.set_margin_end(32)
-        self.rule_manager = RuleManager(database)
-        self.device_manager = DeviceManager(database)
-        self.tasks = tasks
-        self._busy = False
-        self._device_names: list[str] = []
-
-        heading = Gtk.Label(label=tr('Rules'), xalign=0)
-        heading.add_css_class("title-1")
-        self.append(heading)
-        subtitle = Gtk.Label(
-            label=tr('Define scheduled allow or block windows for managed devices.'),
-            xalign=0,
-            wrap=True,
-        )
-        subtitle.add_css_class("dim-label")
-        self.append(subtitle)
-
-        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.device = Gtk.DropDown.new_from_strings([tr('Loading devices...')])
-        self.device.set_hexpand(True)
-        self.action = Gtk.DropDown.new_from_strings([tr(action.title()) for action in ACTIONS])
-        self.schedule = Gtk.Entry(placeholder_text="HH:MM-HH:MM")
-        self.schedule.set_text("22:00-07:00")
-        self.schedule.set_hexpand(True)
-        self.description = Gtk.Entry(placeholder_text=tr('Optional description'))
-        self.description.set_hexpand(True)
-        self.create_button = Gtk.Button(label=tr('Create rule'))
-        self.create_button.add_css_class("suggested-action")
-        self.create_button.connect("clicked", lambda _button: self.create_rule())
-        form.append(self.device)
-        form.append(self.action)
-        form.append(self.schedule)
-        form.append(self.description)
-        form.append(self.create_button)
-        self.append(form)
-
-        self.refresh_button = Gtk.Button(label=tr('Refresh'))
-        self.refresh_button.connect("clicked", lambda _button: self.refresh())
-        self.append(self.refresh_button)
-        self.status = Gtk.Label(label=tr('Ready'), xalign=0, wrap=True)
-        self.append(self.status)
-
-        self.list_box = Gtk.ListBox()
-        self.list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.list_box.set_vexpand(True)
-        self.list_box.add_css_class("boxed-list")
-        self.append(self.list_box)
+class RulesPage(BasePage):
+    def __init__(self, database, tasks):
+        super().__init__(tr("Rules"), tr("Block overrides allow. Priority selects a winner within the same action. Controlled profiles deny by default."))
+        self.database, self.tasks = database, tasks
+        self.manager = RuleManager(database); self._busy = False; self.selected = None
+        self.target = Gtk.ComboBoxText()
+        self.action = Gtk.ComboBoxText(); self.action.append("allow", tr("Allow")); self.action.append("block", tr("Block")); self.action.set_active_id("block")
+        self.schedule = Gtk.Entry(text="22:00-07:00", placeholder_text="22:00-07:00;12:00-13:00")
+        self.timezone = Gtk.Entry(text="local", placeholder_text="local / Europe/Istanbul / Asia/Baku")
+        self.days = Gtk.Entry(text="0,1,2,3,4,5,6")
+        self.priority = Gtk.SpinButton.new_with_range(0, 10000, 1)
+        self.description = Gtk.Entry()
+        self.enabled = Gtk.CheckButton(label=tr("Enabled")); self.enabled.set_active(True)
+        for label, widget in ((tr("Scope"), self.target), (tr("Action"), self.action), (tr("Schedule windows"), self.schedule),
+            (tr("Time zone"), self.timezone), (tr("Weekdays: 0 Monday — 6 Sunday"), self.days), (tr("Priority"), self.priority), (tr("Optional description"), self.description)):
+            self.append(field(label, widget))
+        self.append(self.enabled)
+        self.preview = Gtk.Label(xalign=0, wrap=True); self.append(self.preview)
+        for widget in (self.schedule, self.timezone, self.days): widget.connect("changed", lambda _: self._preview())
+        self.action.connect("changed", lambda _: self._preview())
+        self.save_button = Gtk.Button(label=tr("Save rule")); self.save_button.add_css_class("suggested-action"); self.save_button.connect("clicked", self._save); self.append(self.save_button)
+        new = Gtk.Button(label=tr("New rule")); new.connect("clicked", lambda _: self._new()); self.append(new)
+        self.status = Gtk.Label(xalign=0, wrap=True); self.append(self.status)
+        self.list_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE); self.list_box.add_css_class("boxed-list"); self.list_box.connect("row-selected", self._selected); self.append(self.list_box)
+        for label, callback in ((tr("Enable / disable"), self._toggle), (tr("Delete rule"), self._delete), (tr("Refresh"), lambda _: self.refresh())):
+            button=Gtk.Button(label=label); button.connect("clicked",callback); self.append(button)
         self.refresh()
-
-    def refresh(self) -> None:
-        if self._busy:
-            return
-        self._busy = True
-        self.refresh_button.set_sensitive(False)
-        self.create_button.set_sensitive(False)
-        self.status.set_text(tr('Loading rules and devices...'))
-        self.tasks.submit(self._load, self._loaded, self._failed)
 
     def _load(self):
-        return self.rule_manager.list_rules(), self.device_manager.list_devices()
+        return self.manager.all_rules(), DeviceManager(self.database).list_devices(), GroupManager(self.database).list_profiles(), self.manager.conflicts()
 
-    def _loaded(self, result) -> None:
-        rules, devices = result
-        self._busy = False
-        self.refresh_button.set_sensitive(True)
-        self.create_button.set_sensitive(True)
-        self._device_names = [device.name for device in devices]
-        values = self._device_names or [tr('No devices')]
-        self.device.set_model(Gtk.StringList.new(values))
-        self.device.set_selected(0)
-        while (child := self.list_box.get_first_child()) is not None:
-            self.list_box.remove(child)
+    def refresh(self):
+        if self._busy: return
+        self._busy=True; self.tasks.submit(self._load,self._loaded,self._failed)
+
+    def _loaded(self, result):
+        self._busy=False
+        rules, devices, profiles, conflicts = result
+        self.rules={(rule.group_rule,rule.id):rule for rule in rules}; self.devices={d.id:d for d in devices}
+        self.target.remove_all()
+        for device in devices: self.target.append(f"device:{device.id}", device.name)
+        for profile in profiles: self.target.append(f"profile:{profile.id}", f"{tr('Profiles')}: {profile.name}")
+        while (row:=self.list_box.get_first_child()) is not None:self.list_box.remove(row)
         for rule in rules:
-            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            row.set_margin_top(12)
-            row.set_margin_bottom(12)
-            row.set_margin_start(14)
-            row.set_margin_end(14)
-            device = getattr(rule, "device", None)
-            device_name = device.name if device is not None else tr('Unknown device')
-            title = Gtk.Label(label=f"{device_name}  —  {tr(rule.action.title())}", xalign=0)
-            title.add_css_class("heading")
-            row.append(title)
-            enabled = tr('Enabled') if rule.enabled else tr('Disabled')
-            details = Gtk.Label(
-                label=tr('Schedule: {v0}  |  {v1}  |  {v2}', v0=rule.schedule, v1=enabled, v2=rule.description or tr('No description')),
-                xalign=0,
-                wrap=True,
-            )
-            details.add_css_class("dim-label")
-            row.append(details)
+            row=Gtk.ListBoxRow(); row.set_name(f"{int(rule.group_rule)}:{rule.id}")
+            try:change=next_change(rule)
+            except Exception:change=tr("Invalid schedule; review required")
+            row.set_child(Gtk.Label(label=f"{rule.scope_label} | {tr(rule.action.title())} | {rule.schedule} | {rule.timezone} | {tr('Priority')}: {rule.priority} | {tr('Enabled')}: {rule.enabled} | {tr('Next transition')}: {change or tr('None')}",xalign=0,wrap=True))
             self.list_box.append(row)
-        self.status.set_text(tr('{v0} rules | {v1} devices', v0=len(rules), v1=len(devices)))
+        self.status.set_text("\n".join(conflicts) or tr("Ready"))
+        self._preview()
 
-    def create_rule(self) -> None:
-        selected = self.device.get_selected_item()
-        device_name = selected.get_string() if selected else ""
-        schedule = self.schedule.get_text().strip()
-        if not self._device_names or not device_name:
-            self.status.set_text(tr('Select a device first.'))
-            return
-        if not schedule:
-            self.status.set_text(tr('Enter a schedule such as 22:00-07:00.'))
-            return
-        action = ACTIONS[self.action.get_selected()]
-        description = self.description.get_text().strip() or None
-        if self._busy:
-            return
-        self._busy = True
-        self.create_button.set_sensitive(False)
-        self.refresh_button.set_sensitive(False)
-        self.status.set_text(tr('Creating rule...'))
-        self.tasks.submit(
-            lambda: self.rule_manager.create_rule(device_name, action, schedule, description=description),
-            self._created,
-            self._failed,
-        )
+    def _selected(self,_list,row):
+        self.selected=None if not row else tuple(int(part) for part in row.get_name().split(":"))
+        if not row:return
+        rule=self.rules[self.selected]
+        self.target.set_active_id(f"profile:{rule.profile_id}" if rule.group_rule else f"device:{rule.device_id}")
+        self.target.set_sensitive(False)
+        self.action.set_active_id(rule.action); self.schedule.set_text(rule.schedule); self.timezone.set_text(rule.timezone); self.days.set_text(rule.weekdays)
+        self.priority.set_value(rule.priority); self.description.set_text(rule.description or ""); self.enabled.set_active(rule.enabled)
 
-    def _created(self, _rule) -> None:
-        self._busy = False
-        self.description.set_text("")
-        self.create_button.set_sensitive(True)
-        self.refresh_button.set_sensitive(True)
-        self.status.set_text(tr('Rule created.'))
-        self.refresh()
+    def _new(self):
+        self.list_box.unselect_all(); self.selected=None; self.target.set_sensitive(True)
+        self.schedule.set_text("22:00-07:00"); self.timezone.set_text("local"); self.days.set_text("0,1,2,3,4,5,6"); self.enabled.set_active(True)
 
-    def _failed(self, error: BaseException) -> None:
-        self._busy = False
-        self.refresh_button.set_sensitive(True)
-        self.create_button.set_sensitive(True)
-        self.status.set_text(tr("Operation failed: {error}", error=error))
+    def _preview(self):
+        try:
+            normalized=normalize_windows(self.schedule.get_text()); days=normalize_days(self.days.get_text()); zone(self.timezone.get_text())
+            text=f"{self.action.get_active_id() or 'block'} | {normalized} | {self.timezone.get_text()} | {days}"
+            self.preview.set_text(text + "\n" + tr("Rules affect the whole device. Service/port and destination selectors are unavailable in the current backend."))
+        except Exception as exc:self.preview.set_text(str(exc))
+
+    def _save(self,_button):
+        options=dict(action=self.action.get_active_id(),schedule=self.schedule.get_text(), enabled=self.enabled.get_active(),description=self.description.get_text(),
+            priority=int(self.priority.get_value()),timezone=self.timezone.get_text().strip(),weekdays=self.days.get_text())
+        if self.selected:
+            group,identifier=self.selected
+            work=lambda:self.manager.update_rule(identifier,group=bool(group),**options)
+        else:
+            target=self.target.get_active_id()
+            if not target:return
+            kind,identifier=target.split(":")
+            name=self.devices[int(identifier)].name if kind=="device" else None
+            work=lambda:self.manager.create_rule(name,profile_id=int(identifier) if kind=="profile" else None,**options)
+        confirm(self.get_root(),tr("Save rule"),self.preview.get_text(),tr("Confirm"),lambda:self._mutate(work))
+
+    def _toggle(self,_button):
+        if self.selected:
+            group,identifier=self.selected; rule=self.rules[self.selected]
+            confirm(self.get_root(),tr("Enable / disable"),tr("Change the selected rule state?"),tr("Confirm"),
+                lambda:self._mutate(lambda:self.manager.set_enabled(identifier,not rule.enabled,group=bool(group))))
+
+    def _delete(self,_button):
+        if self.selected:
+            group,identifier=self.selected
+            confirm(self.get_root(),tr("Delete rule"),tr("Permanently remove the selected rule?"),tr("Delete rule"),
+                lambda:self._mutate(lambda:self.manager.delete_rule(identifier,group=bool(group))))
+
+    def _mutate(self,work):
+        if self._busy:return
+        self._busy=True;self.save_button.set_sensitive(False);self.tasks.submit(work,self._saved,self._failed)
+
+    def _saved(self,_result):
+        self._busy=False;self.save_button.set_sensitive(True);self.selected=None;self.target.set_sensitive(True);self.refresh()
+
+    def _failed(self,error):
+        self._busy=False;self.save_button.set_sensitive(True);self.status.set_text(tr("Operation failed: {error}",error=error))

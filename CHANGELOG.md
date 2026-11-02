@@ -12,7 +12,16 @@
 - Preserve missing-device presence during partial scans and use the configured offline grace for runtime identity and persistence.
 - Reconcile neighbor deletion/failure hints instead of creating immediate offline transitions; ignore FAILED/INCOMPLETE cache records as positive observations.
 - Display partial/deep-scan warnings in Discovery and honor reconciliation settings for manual GUI scans.
-- Add deterministic discovery/presence/SQLite integration and callback tests. Kernel-event and graphical runtime verification remain pending.
+- Add deterministic discovery/presence/SQLite integration and callback tests. Kernel-event and graphical runtime verification now run in dedicated Linux CI.
+
+- Add reviewed identity aliases, merge/split/conflict safeguards, persistent IPv4/IPv6 paths and changed service/port history.
+- Add optional DHCP/mDNS/LLMNR/NetBIOS enrichment and asynchronous libnm state observation.
+- Publish only committed domain events; add cooperative discovery cancellation and bounded child ownership.
+- Migrate the shell/appearance to Libadwaita, add adaptive navigation, scoped task lifetimes, complete device evidence and topology provenance.
+- Add reusable profiles, explicit assignment/unassignment, safe deletion and legacy profile editing.
+- Complete rule CRUD, priorities, multiple/overnight windows, named zones, DST behavior, conflict preview and effective next transitions.
+- Reject unsupported fine-grained selectors and exclude ambiguous, invalid and unscoped link-local targets from enforcement.
+- Verify real kernel neighbor events and all GTK workspaces, including profile/rule workflows, three languages, narrow widths and high contrast.
 
 ## 0.4.0
 

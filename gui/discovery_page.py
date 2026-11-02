@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 from core.i18n import tr
+from core.time_utils import to_local
 
 from gi.repository import GLib, Gtk
+from core.operations import CancellationToken
+from sqlalchemy import select
+from models.network_evidence import ScanRecord
+import shutil
 from core.config import Config
 from core.database import Database
 from gui.base_page import BasePage, section
@@ -14,7 +19,7 @@ from network.discovery_service import DiscoveryService, DiscoverySnapshot
 
 class DiscoveryPage(BasePage):
     def __init__(self,config:Config,database:Database,state:ApplicationState,tasks:BackgroundTaskRunner)->None:
-        super().__init__(tr('Network Discovery'),tr('Layered local-network discovery: Linux neighbor state, Scapy ARP and optional Nmap deep inventory.')); self.config=config; self.database=database; self.state=state; self.tasks=tasks; self.service=DiscoveryService(device_manager=DeviceManager(database)); self._pulse_source=None; self._unsubscribe=state.subscribe(self._on_state_changed)
+        super().__init__(tr('Network Discovery'),tr('Layered local-network discovery: Linux neighbor state, Scapy ARP and optional Nmap deep inventory.')); self.config=config; self.database=database; self.state=state; self.tasks=tasks; self.service=DiscoveryService(device_manager=DeviceManager(database)); self._closed=False; self._cancel_token=None; self._pulse_source=None; self._unsubscribe=state.subscribe(self._on_state_changed)
         self.summary=Gtk.Label(xalign=0,wrap=True); self.summary.add_css_class("dim-label"); self.append(self.summary)
         options=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=12); options.add_css_class("card")
         row=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=12); label=Gtk.Label(label=tr('Scan mode'),xalign=0); label.set_hexpand(True); row.append(label); self.mode=Gtk.ComboBoxText()
@@ -28,9 +33,12 @@ class DiscoveryPage(BasePage):
         self.deep_udp=Gtk.CheckButton(label=tr('Scan common UDP ports')); self.deep_udp.set_active(True); self.deep_box.append(self.deep_udp); self.deep_versions=Gtk.CheckButton(label=tr('Identify services and versions')); self.deep_versions.set_active(True); self.deep_box.append(self.deep_versions); self.deep_os=Gtk.CheckButton(label=tr('Fingerprint operating systems')); self.deep_os.set_active(True); self.deep_box.append(self.deep_os); self.deep_elevate=Gtk.CheckButton(label=tr('Use elevated scan via system authorization')); self.deep_elevate.set_active(False); self.deep_box.append(self.deep_elevate)
         row=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=12); label=Gtk.Label(label=tr('Top TCP/UDP ports'),xalign=0); label.set_hexpand(True); row.append(label); self.deep_ports=Gtk.SpinButton.new_with_range(10,1000,10); self.deep_ports.set_value(100); row.append(self.deep_ports); self.deep_box.append(row); options.append(self.deep_box)
         self.mode.connect("changed",lambda _c:self._update_deep_visibility()); expander=Gtk.Expander(label=tr('Scan options')); expander.set_child(options); expander.set_expanded(True); self.append(expander); self._update_deep_visibility()
-        controls=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=10); self.scan_button=Gtk.Button(label=tr('Start scan')); self.scan_button.add_css_class("suggested-action"); self.scan_button.connect("clicked",self._start_scan); controls.append(self.scan_button); self.last_scan=Gtk.Label(label=tr('No scan run yet'),xalign=0); self.last_scan.add_css_class("dim-label"); controls.append(self.last_scan); self.append(controls)
-        self.progress=Gtk.ProgressBar(); self.progress.set_show_text(True); self.progress.set_text(tr('Ready')); self.append(self.progress); self.status=Gtk.Label(label=tr('Ready'),xalign=0,wrap=True); self.status.add_css_class("card"); self.append(self.status); self.device_list=Gtk.ListBox(); self.device_list.set_selection_mode(Gtk.SelectionMode.NONE); self.device_list.set_vexpand(True); self.device_list.add_css_class("boxed-list"); self.append(section(tr('Discovered devices'),self.device_list)); self._render_devices(state.discovery.identities); self._on_state_changed()
+        controls=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=10); self.scan_button=Gtk.Button(label=tr('Start scan')); self.scan_button.add_css_class("suggested-action"); self.scan_button.connect("clicked",self._start_scan); controls.append(self.scan_button); self.cancel_button=Gtk.Button(label=tr("Cancel")); self.cancel_button.connect("clicked",self._cancel_scan); self.cancel_button.set_sensitive(False); controls.append(self.cancel_button); self.last_scan=Gtk.Label(label=tr('No scan run yet'),xalign=0); self.last_scan.add_css_class("dim-label"); controls.append(self.last_scan); self.append(controls)
+        self.progress=Gtk.ProgressBar(); self.progress.set_show_text(True); self.progress.set_text(tr('Ready')); self.append(self.progress); self.status=Gtk.Label(label=tr('Ready'),xalign=0,wrap=True); self.status.add_css_class("card"); self.append(self.status); self.device_list=Gtk.ListBox(); self.device_list.set_selection_mode(Gtk.SelectionMode.NONE); self.device_list.set_vexpand(True); self.device_list.add_css_class("boxed-list"); self.append(section(tr('Discovered devices'),self.device_list)); self._render_devices(state.discovery.identities); self._on_state_changed(); self.history=Gtk.Label(xalign=0,wrap=True,selectable=True); self.append(section(tr("Scan history"),self.history)); self._load_history()
     def cleanup(self)->None:
+        self._closed=True
+        if self._cancel_token:self._cancel_token.cancel()
+        self.service.cancel()
         if self._pulse_source is not None:
             GLib.source_remove(self._pulse_source)
             self._pulse_source = None
@@ -41,6 +49,8 @@ class DiscoveryPage(BasePage):
         if self.state.discovery.running:return
         # Read GTK controls on the main thread. Worker threads must only receive
         # immutable values, never query GTK widgets.
+        self._cancel_token=CancellationToken()
+        token=self._cancel_token
         mode=self.mode.get_active_id() or "hybrid"
         subnet=self.subnet.get_text().strip()
         timeout=int(self.timeout.get_value())
@@ -82,6 +92,8 @@ class DiscoveryPage(BasePage):
                 deep_elevate=deep_elevate,
                 auto_register=auto_register,
                 offline_after_seconds=offline_after_seconds,
+                token=token,
+                on_progress=self._progress,
             ),
             self._scan_finished,
             self._scan_failed,
@@ -99,7 +111,7 @@ class DiscoveryPage(BasePage):
         if snapshot.error:
             message = snapshot.error
         else:
-            status = tr('Scan completed') if snapshot.complete else tr('Partial scan')
+            status = tr("Cancelled") if snapshot.cancelled else (tr('Scan completed') if snapshot.complete else tr('Partial scan'))
             message = tr('{v0}: {v1} host(s) observed. New {v2}, updated {v3}, offline {v4}. {v5}', v0=status, v1=snapshot.scanned, v2=snapshot.new_devices, v3=snapshot.updated_devices, v4=snapshot.offline_devices, v5=detail)
             if not snapshot.complete:
                 message += tr(' Missing devices kept in their previous state.')
@@ -108,15 +120,16 @@ class DiscoveryPage(BasePage):
         discovery.status_message = message
         self.state.notify_changed()
         self._stop_pulse()
-        self.last_scan.set_text(tr('Completed at {v0}', v0=snapshot.completed_at.astimezone().strftime('%H:%M:%S')))
+        self._load_history()
+        self.last_scan.set_text(tr('Completed at {v0}', v0=to_local(snapshot.completed_at).strftime('%H:%M:%S %Z')))
     def _scan_failed(self,error:BaseException)->None:self.state.discovery.running=False; self.state.discovery.error=str(error); self.state.discovery.status_message=tr("Operation failed: {error}", error=error); self.state.notify_changed(); self._stop_pulse()
     def _on_state_changed(self)->None:
-        d=self.state.discovery; self.scan_button.set_sensitive(not d.running); self.progress.set_text(tr('Scanning...') if d.running else (tr('Error') if d.error else tr('Ready'))); self.status.set_text(d.status_message); online=sum(1 for i in d.identities if i.online); self.summary.set_text(tr('Observed: {v0}   |   Known identities: {v1}   |   Online: {v2}', v0=d.scanned, v1=len(d.identities), v2=online)); self._render_devices(d.identities)
+        d=self.state.discovery; self.cancel_button.set_sensitive(d.running); self.scan_button.set_sensitive(not d.running); self.progress.set_text(tr('Scanning...') if d.running else (tr('Error') if d.error else tr('Ready'))); self.status.set_text(d.status_message); online=sum(1 for i in d.identities if i.online); self.summary.set_text(tr('Observed: {v0}   |   Known identities: {v1}   |   Online: {v2}', v0=d.scanned, v1=len(d.identities), v2=online)); self._render_devices(d.identities)
     def _render_devices(self,identities)->None:
         while (child:=self.device_list.get_first_child()) is not None:self.device_list.remove(child)
         if not identities: empty=Gtk.Label(label=tr('No devices discovered yet.'),xalign=0); empty.add_css_class("dim-label"); self.device_list.append(empty); return
         for identity in sorted(identities,key=lambda i:(not i.online,i.current_ip or i.mac)):
-            row=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=3); row.set_margin_top(10); row.set_margin_bottom(10); row.set_margin_start(12); row.set_margin_end(12); title=Gtk.Label(label=f"{tr('Online') if identity.online else tr('Offline')}  {identity.current_ip or tr('No IP')}",xalign=0); title.add_css_class("heading"); row.append(title); details=[identity.mac]; details += [sorted(identity.hostnames)[0]] if identity.hostnames else []; details += [sorted(identity.vendors)[0]] if identity.vendors else []; details += [sorted(identity.os_hints)[0]] if identity.os_hints else []; details.append(tr('Confidence {v0:.0%}', v0=identity.confidence)); info=Gtk.Label(label="  |  ".join(details),xalign=0,wrap=True); info.add_css_class("dim-label"); row.append(info); self.device_list.append(row)
+            row=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=3); row.set_margin_top(10); row.set_margin_bottom(10); row.set_margin_start(12); row.set_margin_end(12); title=Gtk.Label(label=f"{tr('Online') if identity.online else tr('Offline')}  {identity.current_ip or tr('No IP')}",xalign=0); title.add_css_class("heading"); row.append(title); details=[identity.mac]; details += [sorted(identity.hostnames)[0]] if identity.hostnames else []; details += [sorted(identity.vendors)[0]] if identity.vendors else []; details += [sorted(identity.os_hints)[0]] if identity.os_hints else []; details.append(tr('Confidence {v0:.0%}', v0=identity.confidence)); details.append(', '.join(sorted(identity.sources))); details.append(', '.join(sorted(identity.interfaces))); details.append(identity.identity_note or ''); info=Gtk.Label(label="  |  ".join(details),xalign=0,wrap=True); info.add_css_class("dim-label"); row.append(info); self.device_list.append(row)
         deep=self.service.snapshot.deep_hosts if self.service.snapshot else ()
         if deep:
             heading=Gtk.Label(label=tr('Deep scan findings'),xalign=0); heading.add_css_class("heading"); self.device_list.append(heading)
@@ -130,3 +143,25 @@ class DiscoveryPage(BasePage):
     def _stop_pulse(self):
         if self._pulse_source is not None:GLib.source_remove(self._pulse_source); self._pulse_source=None
         self.progress.set_fraction(1.0 if not self.state.discovery.error else 0.0)
+
+    def _cancel_scan(self, _button):
+        if self._cancel_token:
+            self._cancel_token.cancel()
+        self.service.cancel()
+        self.cancel_button.set_sensitive(False)
+        self.status.set_text(tr("Cancellation requested; finishing the current stage safely."))
+
+    def _progress(self, stage):
+        def apply():
+            if not self._closed and self.state.discovery.running:
+                self.progress.set_text(tr("Discovery stage: {stage}", stage=stage))
+            return GLib.SOURCE_REMOVE
+        GLib.idle_add(apply)
+
+    def _load_history(self):
+        def load():
+            with self.database.session() as session:
+                records=list(session.scalars(select(ScanRecord).order_by(ScanRecord.id.desc()).limit(20)))
+                return "\n".join(f"{item.completed_at} UTC | {item.mode} | {item.scanned} | " +
+                    (tr("Cancelled") if item.cancelled else tr("Scan completed") if item.complete else tr("Partial scan")) for item in records)
+        self.tasks.submit(load,self.history.set_text,lambda error:self.history.set_text(str(error)))

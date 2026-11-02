@@ -63,7 +63,7 @@ def runtime(tmp_path, monkeypatch):
             raise values[0]
         return values[0]
 
-    monkeypatch.setattr("network.discovery._scan_linux", lambda _: source(passive))
+    monkeypatch.setattr("network.discovery._scan_linux", lambda _, **_options: source(passive))
     monkeypatch.setattr("network.discovery._scan_scapy", lambda *_: source(active))
     monkeypatch.setattr("network.discovery.infer_local_subnet", lambda: "192.168.1.0/24")
     db = Database(tmp_path / "presence.db")

@@ -6,6 +6,7 @@ import re
 import shutil
 import socket
 import subprocess
+from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 
 from core.logger import get_logger
@@ -13,6 +14,7 @@ from network.device import lookup_vendor
 from network.identity import DeviceObservation
 from network.interface import get_network_status
 from network.presence import neighbor_state
+from core.operations import CancellationToken, run_process
 
 log = get_logger("network.discovery")
 _COMMAND_TIMEOUT_SECONDS_DEFAULT = 5
@@ -76,43 +78,42 @@ def _dedupe(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
     return list(by_identity.values())
 
 def _merge_discovery(hosts: list[DiscoveredHost]) -> list[DiscoveredHost]:
-    result: list[DiscoveredHost] = []; mac_index: dict[str, int] = {}; identity_index: dict[tuple[str, str | None], int] = {}
+    """Merge same-path enrichment while retaining every address/interface.
+
+    Different MAC claims are never merged merely because their IP matches.
+    An interface-less active reply can enrich an already observed same-IP path.
+    """
+    result: list[DiscoveredHost] = []
     for host in hosts:
-        index = mac_index.get(host.mac.lower()) if host.mac else None
-        if index is None: index = identity_index.get((host.ip, host.interface))
-        if index is None:
-            result.append(host); index = len(result) - 1
-            if host.mac: mac_index[host.mac.lower()] = index
-            identity_index[(host.ip, host.interface)] = index
+        mac = _valid_mac_or_none(host.mac)
+        current = next((item for item in result
+            if item.ip == host.ip and _valid_mac_or_none(item.mac) == mac
+            and (item.interface == host.interface or not item.interface or not host.interface)), None)
+        if current is None:
+            result.append(host)
             continue
-        current = result[index]
-        # A confirmed path wins over cached paths for the same MAC, regardless
-        # of address-family/interface ordering. Active replies also supersede
-        # old DHCP addresses retained in the passive cache.
-        prefer_host = host.presence_confirmed and (
-            not current.presence_confirmed or host.source == "active"
-        )
-        if prefer_host:
-            if host.ip != current.ip or host.interface:
-                current.interface = host.interface
-            current.ip = host.ip
+        confirmed = host.presence_confirmed
+        if confirmed and not current.presence_confirmed:
             current.state = host.state
-        elif host.ip == current.ip and not current.interface:
-            current.interface = host.interface
+        current.interface = current.interface or host.interface
         for attr in ("mac", "vendor", "hostname", "device_type", "os_hint"):
             value = getattr(host, attr)
-            if value and (not getattr(current, attr) or host.source in {"active", "deep", "active+passive"}): setattr(current, attr, value)
-        if host.open_tcp_ports: current.open_tcp_ports = tuple(sorted(set(current.open_tcp_ports) | set(host.open_tcp_ports)))
-        if host.open_udp_ports: current.open_udp_ports = tuple(sorted(set(current.open_udp_ports) | set(host.open_udp_ports)))
-        if host.services: current.services = tuple(dict.fromkeys((*current.services, *host.services)))
-        if host.latency_ms is not None: current.latency_ms = host.latency_ms
-        if host.scan_method: current.scan_method = host.scan_method
-        if host.source == "active" and current.source == "passive": current.source = "active+passive"
-        elif host.source == "deep": current.source = "deep+" + current.source if current.source != "passive" else "deep"
+            if value and (not getattr(current, attr) or confirmed and host.source in {"active", "deep"}):
+                setattr(current, attr, value)
+        current.open_tcp_ports = tuple(sorted(set(current.open_tcp_ports) | set(host.open_tcp_ports)))
+        current.open_udp_ports = tuple(sorted(set(current.open_udp_ports) | set(host.open_udp_ports)))
+        current.services = tuple(dict.fromkeys((*current.services, *host.services)))
+        if host.latency_ms is not None:
+            current.latency_ms = host.latency_ms
+        if host.scan_method:
+            current.scan_method = host.scan_method
+        sources = set(current.source.split("+")) | set(host.source.split("+"))
+        current.source = "+".join(sorted(sources))
     return result
 
-def _run_process(args: list[str], timeout_seconds: int) -> str | None:
-    try: result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout_seconds, check=False)
+
+def _run_process(args: list[str], timeout_seconds: int, token: CancellationToken | None = None) -> str | None:
+    try: result = run_process(args, token=token, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout_seconds, check=False)
     except (subprocess.TimeoutExpired, OSError) as exc: log.debug("Discovery command failed: %s", exc); return None
     return result.stdout if result.returncode == 0 else None
 
@@ -130,13 +131,13 @@ def _parse_ip_neigh_output(raw_output: str) -> list[DiscoveredHost]:
         hosts.append(DiscoveredHost(ip=ip_text, interface=interface, mac=mac, state=state))
     return _dedupe(hosts)
 
-def _scan_linux(timeout_seconds: int) -> list[DiscoveredHost]:
+def _scan_linux(timeout_seconds: int, token: CancellationToken | None = None) -> list[DiscoveredHost]:
     ip_binary = shutil.which("ip")
     if ip_binary is None:
         raise DiscoveryError("Passive discovery unavailable: iproute2 is not installed.")
     outputs: list[str] = []
     for args in ((ip_binary, "neigh"), (ip_binary, "-6", "neigh")):
-        raw = _run_process(list(args), timeout_seconds)
+        raw = _run_process(list(args), timeout_seconds, token) if token else _run_process(list(args), timeout_seconds)
         if raw is None:
             raise DiscoveryError(f"Passive discovery failed: {' '.join(args)}.")
         outputs.append(raw)
@@ -167,8 +168,12 @@ def _scan_scapy(subnet: str, timeout_seconds: int) -> list[DiscoveredHost]:
     return _dedupe(hosts)
 
 def _resolve_hostname(ip: str) -> str | None:
-    try: return socket.gethostbyaddr(ip)[0]
-    except (OSError, socket.herror, socket.gaierror): return None
+    # NSS includes configured DNS/mDNS/LLMNR modules; bound the helper rather
+    # than blocking indefinitely inside gethostbyaddr on a broken resolver.
+    binary = shutil.which("getent")
+    raw = _run_process([binary, "hosts", ip], 2) if binary else None
+    fields = raw.split() if raw else []
+    return fields[1] if len(fields) > 1 else None
 
 def _guess_device_type(host: DiscoveredHost) -> str:
     text = " ".join(filter(None, (host.hostname, host.vendor, host.device_type, host.os_hint))).lower()
@@ -193,10 +198,13 @@ def _probe_os_hint(ip: str, timeout: float = 0.35) -> str | None:
         return _guess_os_from_ttl(ttl)
     except Exception: return None
 
-def _apply_deep_scan(hosts: list[DiscoveredHost], subnet: str, *, include_udp: bool, include_os: bool, include_versions: bool, top_ports: int, elevate: bool) -> tuple[list[DiscoveredHost], tuple[str, ...]]:
+def _apply_deep_scan(hosts: list[DiscoveredHost], subnet: str, *, include_udp: bool, include_os: bool, include_versions: bool, top_ports: int, elevate: bool, token: CancellationToken | None = None) -> tuple[list[DiscoveredHost], tuple[str, ...]]:
     try:
         from network.deep_scan import run_deep_scan
-        report = run_deep_scan(subnet, include_udp=include_udp, include_os=include_os, include_versions=include_versions, top_ports=top_ports, elevate=elevate)
+        options = {"token": token} if token else {}
+        report = run_deep_scan(subnet, include_udp=include_udp, include_os=include_os, include_versions=include_versions, top_ports=top_ports, elevate=elevate, **options)
+    except CancelledError:
+        raise
     except ValueError as exc: return hosts, (str(exc),)
     except Exception as exc: log.warning("Deep scan failed: %s", exc); return hosts, (f"Deep scan failed: {exc}",)
     by_ip = {host.ip: host for host in hosts}
@@ -239,6 +247,9 @@ def scan_network_report(
     deep_os: bool = True,
     deep_top_ports: int = 100,
     deep_elevate: bool = False,
+    token: CancellationToken | None = None,
+    on_progress=None,
+    lease_paths: tuple[str, ...] | None = None,
 ) -> DiscoveryReport:
     """Run independent sources, retaining observations when another source fails."""
     normalized_mode = mode.strip().lower()
@@ -246,32 +257,55 @@ def scan_network_report(
     warnings: list[str] = []
     hosts: list[DiscoveredHost] = []
     complete = True
+    def stage(name):
+        if token:
+            token.check()
+        if on_progress:
+            on_progress(name)
+
+    stage("passive")
     if normalized_mode in {"passive", "hybrid", "deep"}:
         try:
-            hosts.extend(_scan_linux(timeout_seconds))
+            hosts.extend(_scan_linux(timeout_seconds, token=token) if token else _scan_linux(timeout_seconds))
+        except CancelledError:
+            raise
         except Exception as exc:
             complete = False
             warnings.append(f"Passive discovery: {exc}")
     cidr = None
     if normalized_mode in {"active", "hybrid", "deep"}:
+        stage("active")
         try:
             cidr = subnet or infer_local_subnet()
             if not cidr:
                 raise DiscoveryError("No local IPv4 subnet could be determined.")
             hosts.extend(_scan_scapy(cidr, active_timeout_seconds or min(timeout_seconds, 5)))
+        except CancelledError:
+            raise
         except Exception as exc:
             complete = False
             warnings.append(f"Active discovery: {exc}")
     hosts = _merge_discovery(hosts)
     if normalized_mode == "deep" and cidr:
-        hosts, deep_warnings = _apply_deep_scan(hosts, cidr, include_udp=deep_udp, include_os=deep_os, include_versions=deep_versions, top_ports=deep_top_ports, elevate=deep_elevate)
+        stage("deep inventory / authorization" if deep_elevate else "deep inventory")
+        hosts, deep_warnings = _apply_deep_scan(hosts, cidr, include_udp=deep_udp, include_os=deep_os, include_versions=deep_versions, top_ports=deep_top_ports, elevate=deep_elevate, token=token)
         warnings.extend(deep_warnings)
         # Conservatively preserve absent devices when inventory is degraded.
         complete = complete and not deep_warnings
+    stage("enrichment")
+    from network.enrichment import enrich_leases, resolve_local_name
+    warnings.extend(enrich_leases(hosts, lease_paths))
     try:
+        if hostname_resolution:
+            for host in hosts:
+                stage("name enrichment")
+                host.hostname = host.hostname or resolve_local_name(host.ip, host.interface, token=token)
         hosts = _enrich(hosts, hostname_resolution=hostname_resolution, vendor_detection=vendor_detection, os_detection=os_detection)
+    except CancelledError:
+        raise
     except Exception as exc:
         warnings.append(f"Discovery enrichment: {exc}")
+    stage("complete")
     return DiscoveryReport(tuple(hosts), tuple(warnings), complete)
 
 

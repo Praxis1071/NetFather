@@ -119,3 +119,20 @@ class ProfileManager:
             session.add(Event(event_type="profile_deleted", description=f"Profile {profile_id} deleted", device_mac=device.mac if device else None))
             session.delete(profile)
             log.info("Profil silindi: id=%s", profile_id)
+
+    def update_profile(self, profile_id, *, name, internet_mode):
+        name, mode = self._validate_name(name), self._validate_mode(internet_mode)
+        with self.db.session() as session:
+            profile = session.get(Profile, profile_id)
+            if profile is None:
+                raise ProfileNotFoundError(f"Profile no longer exists: {profile_id}")
+            if session.scalar(select(Profile.id).where(Profile.device_id == profile.device_id,
+                    Profile.name == name, Profile.id != profile_id)):
+                raise DuplicateProfileError("A profile with this name already belongs to the device.")
+            profile.name, profile.internet_mode = name, mode
+            device = session.get(Device, profile.device_id)
+            session.add(Event(event_type="profile_changed", device_mac=device.mac,
+                              description=f"Device profile {profile_id}: {name} ({mode})"))
+            session.flush()
+            session.expunge(profile)
+            return profile

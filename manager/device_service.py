@@ -7,6 +7,11 @@ from typing import Callable
 from core.database import Database
 from manager.device_manager import DeviceManager
 from models.device import Device
+from sqlalchemy import select
+from models.device_observation import DeviceObservationRecord
+from models.network_evidence import AddressEvidence, ServiceEvidence, IdentityAlias
+from models.event import Event
+from manager.policy_engine import PolicyEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +74,32 @@ class DeviceService:
     def delete(self, name: str) -> DeviceSnapshot:
         self.manager.delete_device(name)
         return self.refresh()
+
+    def details(self, name: str) -> dict:
+        device = self.manager.get_device_by_name(name)
+        with self.manager.db.session() as session:
+            observations = list(session.scalars(select(DeviceObservationRecord).where(
+                DeviceObservationRecord.device_id == device.id).order_by(DeviceObservationRecord.observed_at.desc()).limit(100)))
+            addresses = list(session.scalars(select(AddressEvidence).where(AddressEvidence.device_id == device.id)))
+            services = list(session.scalars(select(ServiceEvidence).where(ServiceEvidence.device_id == device.id)
+                .order_by(ServiceEvidence.observed_at.desc()).limit(20)))
+            aliases = list(session.scalars(select(IdentityAlias).where(IdentityAlias.device_id == device.id)))
+            events = list(session.scalars(select(Event).where(Event.device_mac.in_([device.mac, *(a.mac for a in aliases)]))
+                .order_by(Event.timestamp.desc(), Event.id.desc()).limit(20)))
+            for item in (*observations, *addresses, *services, *aliases, *events):
+                session.expunge(item)
+        from manager.profile_manager import ProfileManager
+        from manager.group_manager import GroupManager
+        from firewall.backends import NftablesBackend
+        try:
+            blocked = NftablesBackend().read_blocked_ips()
+            enforcement = "Unknown / unverified" if blocked is None else ("Blocked" if device.ip in blocked else "Not blocked by NetFather")
+        except Exception as exc:
+            enforcement = f"Unknown / unverified: {exc}"
+        return dict(device=device, observations=observations, addresses=addresses, services=services,
+            aliases=aliases, events=events, policy=PolicyEngine(self.manager.db).evaluate_device(name),
+            profiles=[*ProfileManager(self.manager.db).list_profiles(device_name=name),
+                      *GroupManager(self.manager.db).list_profiles(device_id=device.id)], enforcement=enforcement)
 
     def _emit(self) -> None:
         for callback in tuple(self._listeners):

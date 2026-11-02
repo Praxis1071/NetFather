@@ -86,6 +86,7 @@ def test_live_switch_reads_new_state_and_persists_before_starting_service(prefer
     calls = []
     service = SimpleNamespace(start=lambda: calls.append("start"), stop=lambda: calls.append("stop"))
     app.live_presence = service
+    app.set_live_presence = lambda enabled: service.start() if enabled else service.stop()
     enabled = SimpleNamespace(active=True)
     enabled.get_active = lambda: enabled.active
     apply = callback("settings_page.py", "_live_presence_card", "apply_settings", {

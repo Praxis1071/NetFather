@@ -1,5 +1,10 @@
 # NetFather Technical Debt and Fix Plan
 
+The historical checklists below describe the main-branch hardening baseline.
+Phases I–III implementation on PR #9 is tracked in
+[PHASES-I-III.md](PHASES-I-III.md), with per-stage Linux and GTK acceptance
+evidence. Main-branch completion markers can be reconciled after maintainer merge.
+
 This document records the repository-wide engineering findings from the September 2026 review. It is the source-of-truth checklist for the current hardening cycle.
 
 Status markers:

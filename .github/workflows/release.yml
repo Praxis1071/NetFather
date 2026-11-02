@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install GTK4 build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgirepository1.0-dev gir1.2-gtk-4.0 libcairo2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libgirepository1.0-dev gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-nm-1.0 libcairo2-dev pkg-config
       - uses: actions/setup-python@v7
         with:
           python-version: "${{ env.PYTHON_VERSION }}"

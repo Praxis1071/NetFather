@@ -1,5 +1,8 @@
 # Live network presence
 
+For the Phases I–III implementation, real kernel verification and current
+selected-address/cancellation rules, see [the acceptance record](../PHASES-I-III.md).
+
 NetFather now has an optional continuous presence layer for Linux desktops.
 
 ## Fast path

@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from core.i18n import tr
 
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 from sqlalchemy import select
 
 from core.database import Database
 from gui.tasks import BackgroundTaskRunner
 from models.event import Event
+from core.time_utils import to_local
 
 
 class EventsPage(Gtk.Box):
@@ -23,7 +24,12 @@ class EventsPage(Gtk.Box):
         self.count = Gtk.Label(label="", xalign=0); self.count.add_css_class("dim-label"); toolbar.append(self.count); self.append(toolbar)
         self.list_box = Gtk.ListBox(); self.list_box.set_selection_mode(Gtk.SelectionMode.NONE); self.list_box.add_css_class("boxed-list"); self.list_box.set_vexpand(True); self.append(self.list_box)
         self.empty = Gtk.Label(label=tr('No events recorded yet.'), xalign=0); self.empty.add_css_class("dim-label")
+        self._unsubscribe = database.events.subscribe(lambda _: self.refresh(),
+            dispatcher=lambda callback: GLib.idle_add(lambda: (callback(), GLib.SOURCE_REMOVE)[1]))
         self.refresh()
+
+    def cleanup(self):
+        self._unsubscribe()
 
     def refresh(self) -> None:
         if self._busy: return
@@ -42,7 +48,7 @@ class EventsPage(Gtk.Box):
         for event in events:
             row = Gtk.ListBoxRow(); box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3); box.set_margin_top(10); box.set_margin_bottom(10); box.set_margin_start(12); box.set_margin_end(12)
             heading = Gtk.Label(label=f"{event.event_type}  ·  {event.severity.upper()}", xalign=0); heading.add_css_class("heading"); box.append(heading)
-            timestamp = event.timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S") if event.timestamp else tr('Unknown time')
+            timestamp = to_local(event.timestamp).strftime("%Y-%m-%d %H:%M:%S %Z") if event.timestamp else tr('Unknown time')
             detail = Gtk.Label(label=f"{timestamp}  ·  {event.description}", xalign=0, wrap=True); detail.add_css_class("dim-label"); box.append(detail)
             if event.device_mac:
                 device = Gtk.Label(label=tr('Device: {v0}', v0=event.device_mac), xalign=0); device.add_css_class("caption"); box.append(device)

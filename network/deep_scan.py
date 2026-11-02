@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 from core.logger import get_logger
+from core.operations import CancellationToken, run_process
 
 log = get_logger("network.deep_scan")
 
@@ -140,11 +141,13 @@ def run_deep_scan(
     top_ports: int = 100,
     timeout_seconds: int = 300,
     elevate: bool = False,
+    token: CancellationToken | None = None,
 ) -> DeepScanReport:
     """Run an opt-in, bounded deep inventory of a local IPv4 network."""
     if not nmap_available():
         return DeepScanReport(False, privileged(), warnings=("Nmap bulunamadı; deep scan kullanılamıyor.",))
     network = _validate_local_target(target)
+    timeout_seconds = max(30, min(600, int(timeout_seconds)))
     is_privileged = privileged()
     warnings: list[str] = []
     prefix = ["nmap"]
@@ -152,8 +155,14 @@ def run_deep_scan(
         if not pkexec_available():
             warnings.append("pkexec bulunamadı; elevated scan normal kullanıcı yetkisiyle devam ediyor.")
         else:
-            prefix = ["pkexec", "nmap"]
-            is_privileged = True
+            guardian = shutil.which("timeout")
+            if guardian is None:
+                warnings.append("Elevated scan unavailable: GNU timeout is required for bounded privileged cleanup.")
+            else:
+                # The unprivileged GUI cannot always signal a child after
+                # pkexec changes its UID. The elevated guardian owns cleanup.
+                prefix = ["pkexec", guardian, "--signal=TERM", "--kill-after=2s", f"{timeout_seconds}s", "nmap"]
+                is_privileged = True
     ports = max(10, min(1000, int(top_ports)))
 
     # First discover live hosts. The previous implementation used -Pn against
@@ -164,8 +173,9 @@ def run_deep_scan(
     if network.endswith("/16"):
         warnings.append("Deep scan /16 ağlarda önce host keşfi yapar; yine de büyük ağlarda tarama süresi artabilir.")
     try:
-        discovery = subprocess.run(
+        discovery = run_process(
             discovery_command,
+            token=token,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -212,8 +222,9 @@ def run_deep_scan(
         command.extend(["-sV", "--version-light"])
     command.extend(["--top-ports", str(ports), "-oX", "-", "-iL", "-"])
     try:
-        completed = subprocess.run(
+        completed = run_process(
             command,
+            token=token,
             input="\n".join(live_ips) + "\n",
             capture_output=True,
             text=True,

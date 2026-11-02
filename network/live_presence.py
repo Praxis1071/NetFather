@@ -73,6 +73,7 @@ class LivePresenceService:
                 self._event_timer = None
                 self._safety_timer = None
 
+        self.discovery.cancel()
         for timer in timers:
             if timer is None:
                 continue
@@ -105,6 +106,10 @@ class LivePresenceService:
                 # fails; reconciliation can repair state on the next scan.
                 log.exception("Unable to persist a neighbor presence event")
 
+        self.request_reconcile()
+
+    def request_reconcile(self) -> None:
+        """Debounce neighbor and NetworkManager state hints through one path."""
         with self._lock:
             if self._stopped:
                 return

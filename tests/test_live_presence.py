@@ -34,6 +34,9 @@ class _Discovery:
         self.lock = threading.Lock()
         self.scan_impl = None
 
+    def cancel(self):
+        return False
+
     def scan(self, **_kwargs):
         with self.lock:
             self.scan_calls += 1

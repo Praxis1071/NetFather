@@ -27,6 +27,8 @@ class Device(Base):
     os_hint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     online: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     auto_registered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    identity_conflict: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    identity_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now)
     last_seen: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 

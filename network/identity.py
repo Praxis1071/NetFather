@@ -9,8 +9,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
+import ipaddress
 
 from core.time_utils import utc_now
+
+
+def preferred_address_key(address: str | None) -> int:
+    """Prefer IPv4 for the current IPv4 engine, then routed IPv6, then link-local."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return 3
+    return 0 if ip.version == 4 else (2 if ip.is_link_local else 1)
 
 
 def normalize_mac(mac: str) -> str:
@@ -65,6 +75,8 @@ class DeviceIdentity:
     last_seen: datetime = field(default_factory=utc_now)
     online: bool = True
     confidence: float = 0.0
+    identity_conflict: bool = False
+    identity_note: str | None = None
 
     def observe(self, observation: DeviceObservation) -> None:
         if observation.mac != self.mac:
@@ -74,7 +86,7 @@ class DeviceIdentity:
             self.ip_last_seen[observation.ip] = observation.observed_at
             if self.current_ip is None:
                 self.current_ip = observation.ip
-            elif self.ip_last_seen.get(self.current_ip, datetime.min) <= observation.observed_at:
+            elif self.ip_last_seen.get(self.current_ip, observation.observed_at) <= observation.observed_at:
                 self.current_ip = observation.ip
         self.hostnames.update(filter(None, (observation.hostname,)))
         self.vendors.update(filter(None, (observation.vendor,)))
@@ -97,8 +109,12 @@ class IdentityResolver:
 
     def __init__(self) -> None:
         self._identities: dict[str, DeviceIdentity] = {}
+        self.aliases: dict[str, str] = {}
 
     def observe(self, observation: DeviceObservation) -> DeviceIdentity:
+        if observation.mac in self.aliases:
+            from dataclasses import replace
+            observation = replace(observation, mac=self.aliases[observation.mac])
         identity = self._identities.get(observation.mac)
         if identity is None:
             identity = DeviceIdentity(
@@ -119,7 +135,8 @@ class IdentityResolver:
             identity.online = False
 
     def get(self, mac: str) -> DeviceIdentity | None:
-        return self._identities.get(normalize_mac(mac))
+        normalized = normalize_mac(mac)
+        return self._identities.get(self.aliases.get(normalized, normalized))
 
     def all(self) -> tuple[DeviceIdentity, ...]:
         return tuple(self._identities.values())
@@ -133,9 +150,16 @@ class IdentityResolver:
     ) -> tuple[DeviceIdentity, ...]:
         """Apply observations; expire missing identities only on complete scans."""
         observed_macs: set[str] = set()
+        current_paths: dict[str, list[str]] = {}
+        previous_ips = {mac: item.current_ip for mac, item in self._identities.items()}
         for observation in observations:
-            self.observe(observation)
-            observed_macs.add(observation.mac)
+            identity = self.observe(observation)
+            observed_macs.add(identity.mac)
+            if observation.ip:
+                current_paths.setdefault(identity.mac, []).append(observation.ip)
+        for mac, addresses in current_paths.items():
+            self._identities[mac].current_ip = min(addresses, key=lambda ip: (
+                preferred_address_key(ip), ip != previous_ips.get(mac), ip))
         threshold = utc_now() - timedelta(seconds=max(0, offline_after_seconds))
         for identity in self._identities.values():
             last_seen = identity.last_seen

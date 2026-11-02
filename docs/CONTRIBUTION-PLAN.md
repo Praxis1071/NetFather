@@ -1,5 +1,8 @@
 # Discovery, live-presence and GUI contribution plan
 
+Current Phases I–III implementation and acceptance supersede the historical
+next-work list below; see [PHASES-I-III.md](PHASES-I-III.md).
+
 Baseline: `cb0f20083d542cb455c4fbb11b94d5b7f12caf90` (2026-10-01).
 
 ## Why this contribution comes first
