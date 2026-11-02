@@ -180,3 +180,41 @@ def test_all_workspaces_render_adapt_and_close_without_late_callbacks(tmp_path, 
         controller.cleanup()
         db.close()
         set_language("en")
+
+
+@pytest.mark.parametrize("live_enabled", [False, True])
+def test_application_entry_lifecycle_closes_owned_services(tmp_path, monkeypatch, live_enabled):
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import GLib
+    from core.config import Config
+    from gui.app import NetFatherApplication
+    config = Config(config_path=tmp_path / "config.toml")
+    config.general.data_dir = str(tmp_path)
+    config.discovery.live_presence_enabled = live_enabled
+    monkeypatch.setattr("gui.app.load_config", lambda: config)
+    application = NetFatherApplication()
+    application.set_application_id("org.praxis1071.NetFather.Lifecycle." + ("live" if live_enabled else "manual"))
+    closed = []
+    def close():
+        window = application.get_active_window()
+        if window is not None:
+            window.close()
+            closed.append(True)
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+    timer = GLib.timeout_add(500, close)
+    guard = GLib.timeout_add_seconds(10, lambda: (application.quit(), GLib.SOURCE_REMOVE)[1])
+    try:
+        assert application.run(["netfather"]) == 0
+        assert closed and application._shutdown_complete
+        assert application.live_presence._stopped
+        assert not application.live_presence.monitor.running
+        assert application.network_manager.client is None
+        assert application.tasks._closed
+    finally:
+        GLib.source_remove(guard)
+        if not closed:
+            GLib.source_remove(timer)
+        application._on_shutdown(application)
