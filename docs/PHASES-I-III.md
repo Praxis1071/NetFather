@@ -87,8 +87,17 @@ actual GTK device/profile/rule CRUD, confirmations and assignment flows. Six job
 passed for `ca01ef8` in
 [CI 41347465925](https://github.com/Praxis1071/NetFather/actions/runs/41347465925):
 Python 3.12/3.13/3.14, editable installation, three privileged namespace tests and
-ordinary/high-contrast graphical scenarios. Follow-up lifecycle, guardian, UTC
-and migration changes require fresh head CI before merge.
+ordinary/high-contrast graphical scenarios.
+
+Final implementation `1a7a7c1` passed all six jobs in
+[CI 41348445771](https://github.com/Praxis1071/NetFather/actions/runs/41348445771):
+290 passed and 6 capability/session skips in the ordinary Python 3.12 job;
+three privileged namespace tests passed; three ordinary and three high-contrast
+GTK scenarios passed. The graphical scenarios exercise device rename/removal,
+profile creation/editing/mode changes, assignment/deletion safeguards, rule
+creation/editing/toggling/removal, cancellation and late-callback suppression.
+Final ordinary/high-contrast and narrow screenshots were inspected. Subsequent
+documentation-only commits retain the normal required CI checks before merge.
 
 ## Verification and authority
 
