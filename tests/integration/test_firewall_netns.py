@@ -53,20 +53,24 @@ def test_nftables_policy_applies_to_an_existing_tcp_connection():
             ["ip","netns","exec",b,sys.executable,"-c",server_script],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-        for _ in range(40):
+        for _ in range(100):
             if os.path.exists(ready): break
             if server.poll() is not None: break
             import time; time.sleep(0.05)
-        assert os.path.exists(ready), "TCP server did not become ready"
+        if not os.path.exists(ready):
+            server_error = server.communicate(timeout=1)[1] if server.poll() is not None else "server still running"
+            pytest.fail(f"TCP server did not become ready: {server_error}")
         client = subprocess.Popen(
             ["ip","netns","exec",a,sys.executable,"-c",client_script],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-        for _ in range(40):
+        for _ in range(100):
             if os.path.exists(connected): break
             if client.poll() is not None: break
             import time; time.sleep(0.05)
-        assert os.path.exists(connected), "TCP client did not establish the existing flow"
+        if not os.path.exists(connected):
+            client_error = client.communicate(timeout=1)[1] if client.poll() is not None else "client still running"
+            pytest.fail(f"TCP client did not establish the existing flow: {client_error}")
 
         rules = NftablesBackend().preview(["10.203.0.2"])
         applied = _run(["ip","netns","exec",a,"nft","-f","-"], input_text=rules, check=False)
