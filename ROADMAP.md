@@ -561,7 +561,7 @@ Make packet-level enforcement atomic, isolated, observable, and recoverable.
 - [x] Baseline nftables runtime CI verification (run 36848741182); new contributions require their own CI verification.
 - [~] Add failure-injection coverage for policy-application verification failure; backend command-failure and privileged namespace recovery cases still need explicit coverage.
 - [~] Add a regression test proving a readable pre-existing NetFather blocking set is restored after a failed verification; fresh CI and privileged integration verification remain required.
-- [ ] Prove unrelated nftables state remains untouched.
+- [x] Prove unrelated nftables state remains untouched; privileged network-namespace apply/rollback test passed (PR #10, CI run 41991886936).
 - [ ] Persist and restore enforcement state across restart.
 - [ ] Reconcile desired policy with actual nftables state.
 - [ ] Detect external modification of the NetFather table.
@@ -1093,7 +1093,7 @@ This is the single source of truth for the practical implementation order. The o
 
 73. [ ] Complete nftables failure-injection coverage.
 74. [ ] Prove failed transactions preserve the previous NetFather state.
-75. [ ] Prove unrelated nftables tables/rules remain untouched.
+75. [x] Prove unrelated nftables tables/rules remain untouched (PR #10, CI run 41991886936).
 76. [ ] Complete IPv4 and IPv6 enforcement paths.
 77. [ ] Add preflight enforcement preview.
 78. [ ] Validate every enforcement target against identity confidence and topology.
