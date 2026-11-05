@@ -131,3 +131,53 @@ def test_nftables_rules_really_block_isolated_namespace_traffic():
     finally:
         subprocess.run(["ip","netns","del",a], capture_output=True)
         subprocess.run(["ip","netns","del",b], capture_output=True)
+
+
+
+def test_nftables_apply_and_rollback_leave_unrelated_table_untouched(monkeypatch):
+    if os.geteuid() != 0 or not shutil.which("ip") or not shutil.which("nft"):
+        pytest.skip("root + ip + nft required")
+
+    namespace = f"nfiso{uuid.uuid4().hex[:8]}"
+    try:
+        _run(["ip", "netns", "add", namespace])
+        _run(["ip", "netns", "exec", namespace, "nft", "-f", "-"], input_text=(
+            "add table inet sentinel\\n"
+            "add chain inet sentinel keep\\n"
+            "add rule inet sentinel keep counter\\n"
+        ))
+
+        before = _run([
+            "ip", "netns", "exec", namespace, "nft", "list", "table", "inet", "sentinel"
+        ]).stdout
+
+        def run_in_namespace(args, *, input_text=None):
+            return subprocess.run(
+                ["ip", "netns", "exec", namespace, *args],
+                input=input_text,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=10,
+            )
+
+        monkeypatch.setattr("firewall.backends._run", run_in_namespace)
+        backend = NftablesBackend()
+
+        applied = backend.apply(["10.203.0.2"], apply=True)
+        assert applied.applied is True
+        assert run_in_namespace([
+            shutil.which("nft"), "list", "table", "inet", "netfather"
+        ]).returncode == 0
+
+        rolled_back = backend.rollback(apply=True)
+        assert rolled_back.applied is True
+
+        after = _run([
+            "ip", "netns", "exec", namespace, "nft", "list", "table", "inet", "sentinel"
+        ]).stdout
+        assert after == before
+    finally:
+        subprocess.run(["ip", "netns", "del", namespace], capture_output=True)
