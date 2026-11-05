@@ -32,7 +32,7 @@ def test_nftables_policy_applies_to_an_existing_tcp_connection():
         "    if not chunk: break\n"
         "    data.append(chunk)\n"
         "  except socket.timeout: break\n"
-        f"open('{received}','w').write('\\n'.join(x.decode(errors='replace') + '|' + str(time.time()) for x in data)); c.close(); s.close()"
+        f"open('{received}','w').write('\n'.join(x.decode(errors='replace') + '|' + str(time.time()) for x in data)); c.close(); s.close()"
     )
     client_script = (
         "import socket,time\n"
@@ -142,9 +142,9 @@ def test_nftables_apply_and_rollback_leave_unrelated_table_untouched(monkeypatch
     try:
         _run(["ip", "netns", "add", namespace])
         _run(["ip", "netns", "exec", namespace, "nft", "-f", "-"], input_text=(
-            "add table inet sentinel\\n"
-            "add chain inet sentinel keep\\n"
-            "add rule inet sentinel keep counter\\n"
+            "add table inet sentinel\n"
+            "add chain inet sentinel keep\n"
+            "add rule inet sentinel keep counter\n"
         ))
 
         before = _run([
