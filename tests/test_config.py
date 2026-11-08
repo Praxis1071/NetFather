@@ -73,8 +73,8 @@ def test_existing_config_permissions_are_restricted(tmp_path: Path, isolated_dat
 def test_management_host_ips_are_normalized_and_persisted(tmp_path: Path, isolated_data_dir: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
-        f'[general]\\ndata_dir = "{isolated_data_dir}"\\n\\n'
-        '[firewall]\\nmanagement_host_ips = ["10.0.0.5", "fd00::5", "10.0.0.5"]\\n',
+        f'[general]\ndata_dir = "{isolated_data_dir}"\n\n'
+        '[firewall]\nmanagement_host_ips = ["10.0.0.5", "fd00::5", "10.0.0.5"]\n',
         encoding="utf-8",
     )
     cfg = config_module.load_config(path)
@@ -91,8 +91,8 @@ def test_invalid_management_host_ip_is_rejected(
 ) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
-        f'[general]\\ndata_dir = "{isolated_data_dir}"\\n\\n'
-        f'[firewall]\\nmanagement_host_ips = ["{value}"]\\n',
+        f'[general]\ndata_dir = "{isolated_data_dir}"\n\n'
+        f'[firewall]\nmanagement_host_ips = ["{value}"]\n',
         encoding="utf-8",
     )
     with pytest.raises(ConfigError):
