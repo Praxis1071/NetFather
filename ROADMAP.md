@@ -529,7 +529,7 @@ Never imply that discovering another device automatically gives NetFather contro
 - [x] Enforcement disabled by default.
 - [x] Protect local IPv4 addresses.
 - [x] Protect gateway address.
-- [ ] Add explicit interface/admin-host safeguards.
+- [~] Add explicit interface/admin-host safeguards; all detected local addresses, gateway and loopback are protected, and stable administrator-host IPv4/IPv6 addresses can be configured in `firewall.management_host_ips`. Interface/topology-change handling and real management-path integration tests remain open.
 - [ ] Stronger enforcement-target validation.
 - [ ] Preflight enforcement preview.
 - [ ] User-visible enforcement-path explanation.
@@ -1023,7 +1023,7 @@ This is the single source of truth for the practical implementation order. The o
 17. [x] Define identity confidence and conflict-resolution rules.
 18. [x] Add explicit identity merge/split safeguards.
 19. [x] Prevent ambiguous identities from silently becoming enforcement targets.
-20. [ ] Complete interface/admin-host/gateway protection.
+20. [~] Complete interface/admin-host/gateway protection; configured management-host IPs and loopback protection are implemented, while interface/topology-change safeguards and integration verification remain open.
 21. [ ] Strengthen topology detection and validation.
 22. [x] Distinguish observed, inferred, and unknown topology relationships.
 23. [ ] Add topology-change detection and safe invalidation of enforcement state.

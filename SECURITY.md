@@ -34,7 +34,7 @@ The current backend still has hardening work outstanding:
 
 - preserve counters and NetFather state across policy changes and non-destructive rollback;
 - handle policy changes for existing connections through an explicit conntrack strategy;
-- protect the NetFather management path from self-lockout;
+- protect the NetFather management path from self-lockout; the engine excludes all detected local-interface addresses, gateway and loopback addresses, and supports explicit `firewall.management_host_ips` entries for a separate administrator workstation; interface/topology changes and end-to-end management-path verification remain open;
 - validate the actual enforcement point before applying remote-device restrictions;
 - move privileged firewall operations behind a narrowly scoped D-Bus service with polkit authorization.
 

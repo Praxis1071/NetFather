@@ -14,6 +14,17 @@ yalnız preview/dry-run üretir. Gerçek işlem:
 netfather firewall sync --apply
 ```
 
+## Management-path protection
+
+The firewall engine always excludes every detected local interface address, the detected gateway address, and IPv4/IPv6 loopback addresses from its block set. If the administrator connects from a separate LAN/VPN host, add that host's stable private or link-local addresses to `[firewall].management_host_ips`:
+
+```toml
+[firewall]
+management_host_ips = ["192.168.1.50", "fd00::50"]
+```
+
+Addresses are normalized and deduplicated during configuration loading. Invalid, public, or interface-scoped IPv6 entries are rejected. This is an explicit safety allowlist for the management host; update it if the administrator device's address changes. Do not add an entire subnet unless every address in it is intentionally protected.
+
 ## Linux nftables
 
 NetFather yalnız `table inet netfather` oluşturur. `input`, `output` ve `forward` chain'lerinde blocked device IPv4 set'ini uygular. Yeni ruleset önce `nft -c` ile doğrulanır. Apply başarısız olursa mevcut NetFather table backup'ı geri yüklenmeye çalışılır.

@@ -68,3 +68,32 @@ def test_existing_config_permissions_are_restricted(tmp_path: Path, isolated_dat
     config_module.load_config(path)
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_management_host_ips_are_normalized_and_persisted(tmp_path: Path, isolated_data_dir: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        f'[general]\ndata_dir = "{isolated_data_dir}"\n\n'
+        '[firewall]\nmanagement_host_ips = ["10.0.0.5", "fd00::5", "10.0.0.5"]\n',
+        encoding="utf-8",
+    )
+    cfg = config_module.load_config(path)
+    assert cfg.firewall.management_host_ips == ["10.0.0.5", "fd00::5"]
+
+    config_module.save_config(cfg)
+    loaded = config_module.load_config(path)
+    assert loaded.firewall.management_host_ips == ["10.0.0.5", "fd00::5"]
+
+
+@pytest.mark.parametrize("value", ["not-an-ip", "8.8.8.8", "2001:4860:4860::8888", "fe80::1%wlan0"])
+def test_invalid_management_host_ip_is_rejected(
+    tmp_path: Path, isolated_data_dir: Path, value: str
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        f'[general]\ndata_dir = "{isolated_data_dir}"\n\n'
+        f'[firewall]\nmanagement_host_ips = ["{value}"]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError):
+        config_module.load_config(path)

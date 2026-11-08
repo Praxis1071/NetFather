@@ -20,13 +20,16 @@ class FirewallEngine:
         self.backend = get_firewall_backend(config.firewall.backend)
 
     @staticmethod
-    def _protected_ips() -> set[str]:
-        """Return local management-path IPv4 addresses that must never be blocked."""
+    def _protected_ips(extra_ips: tuple[str, ...] | list[str] = ()) -> set[str]:
+        """Return local and explicitly configured management addresses to protect."""
         status = get_network_status()
         return {
             *get_local_ipv4_addresses(),
             *get_local_ipv6_addresses(),
+            "127.0.0.1",
+            "::1",
             *{value for value in (status.local_ip, status.gateway) if value},
+            *extra_ips,
         }
 
     @staticmethod
@@ -57,7 +60,7 @@ class FirewallEngine:
         if should_apply:
             self._validate_enforcement_topology()
         requested_blocked = PolicyEngine(self.db).blocked_ips()
-        protected = self._protected_ips()
+        protected = self._protected_ips(self.config.firewall.management_host_ips)
         blocked = [ip for ip in requested_blocked if ip not in protected]
 
         # Snapshot the current managed set before writing, when the backend
@@ -162,7 +165,7 @@ class FirewallEngine:
             return False
 
         requested_blocked = PolicyEngine(self.db).blocked_ips()
-        protected = self._protected_ips()
+        protected = self._protected_ips(self.config.firewall.management_host_ips)
         expected = tuple(normalize_local_ips(
             [ip for ip in requested_blocked if ip not in protected]
         ))

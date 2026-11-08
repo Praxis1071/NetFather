@@ -44,7 +44,7 @@ def test_firewall_sync_never_blocks_local_or_gateway_ip(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(
         "firewall.engine.get_local_ipv4_addresses",
-        lambda: {"192.168.1.10", "10.0.0.5"},
+        lambda: {"192.168.1.10"},
     )
     monkeypatch.setattr(
         "firewall.engine.get_network_status",
@@ -54,7 +54,7 @@ def test_firewall_sync_never_blocks_local_or_gateway_ip(tmp_path: Path, monkeypa
 
     engine = FirewallEngine(
         db,
-        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True, enforcement_topology="inline")),
+        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True, enforcement_topology="inline", management_host_ips=["10.0.0.5"])),
     )
     backend = CaptureBackend()
     engine.backend = backend
@@ -303,5 +303,36 @@ def test_firewall_sync_restores_previous_state_instead_of_clearing_it(
         ]
         assert backend.read_blocked_ips() == ("192.168.1.22",)
         assert EventManager(db).list_events(event_type="firewall_recovery_error") == []
+    finally:
+        db.close()
+
+
+def test_firewall_sync_protects_loopback_addresses(tmp_path: Path, monkeypatch) -> None:
+    db = Database(tmp_path / "firewall-loopback.db")
+    db.init_db()
+    devices = DeviceManager(db)
+    devices.add_device("IPv4 loopback", "02:00:00:00:00:11", ip="127.0.0.1")
+    devices.add_device("IPv6 loopback", "02:00:00:00:00:12", ip="::1")
+    devices.add_device("Tablet", "02:00:00:00:00:13", ip="192.168.1.23")
+    profiles = ProfileManager(db)
+    for name in ("IPv4 loopback", "IPv6 loopback", "Tablet"):
+        profiles.create_profile(name, "blocked", internet_mode="blocked")
+
+    monkeypatch.setattr("firewall.engine.get_local_ipv4_addresses", lambda: set())
+    monkeypatch.setattr("firewall.engine.get_local_ipv6_addresses", lambda: set())
+    monkeypatch.setattr(
+        "firewall.engine.get_network_status",
+        lambda: SimpleNamespace(local_ip=None, gateway=None),
+    )
+    engine = FirewallEngine(
+        db,
+        Config(firewall=FirewallConfig(backend="none", enforcement_enabled=True, enforcement_topology="inline")),
+    )
+    backend = CaptureBackend()
+    engine.backend = backend
+
+    try:
+        result = engine.sync(apply=True)
+        assert result.blocked_ips == ("192.168.1.23",)
     finally:
         db.close()
